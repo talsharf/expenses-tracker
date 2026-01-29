@@ -15,6 +15,7 @@ export const TransactionList = ({ data, sortConfig, onSort }) => {
                     <thead>
                         <tr>
                             <th onClick={() => onSort('date')}>Date {getSortIndicator('date')}</th>
+                            <th>Description</th>
                             <th>Category</th>
                             <th onClick={() => onSort('amount')}>Amount {getSortIndicator('amount')}</th>
                         </tr>
@@ -23,13 +24,14 @@ export const TransactionList = ({ data, sortConfig, onSort }) => {
                         {data.map((item) => (
                             <tr key={item.id}>
                                 <td>{item.date}</td>
-                                <td>{item.type}</td>
+                                <td>{item.description}</td>
+                                <td>{item.category}</td>
                                 <td>${item.amount.toFixed(2)}</td>
                             </tr>
                         ))}
                         {data.length === 0 && (
                             <tr>
-                                <td colSpan="3" style={{ textAlign: 'center', padding: '2rem' }}>
+                                <td colSpan="4" style={{ textAlign: 'center', padding: '2rem' }}>
                                     No transactions found for the selected filters.
                                 </td>
                             </tr>

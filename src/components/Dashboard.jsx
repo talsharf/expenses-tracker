@@ -1,9 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { expenseData } from '../data/expenses';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+// import { expenseData } from '../data/expenses'; // Disabled mock data
 import { BarChartComponent, PieChartComponent } from './Charts';
 import { TransactionList } from './TransactionList';
+import { getTransactions, clearTransactions } from '../api/client';
+import { FileUploader } from './FileUploader';
 
 export const Dashboard = () => {
+    // Data State
+    const [transactions, setTransactions] = useState([]);
+    const [filteredData, setFilteredData] = useState([]);
+
     // Initial sort: Date Descending
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
 
@@ -15,19 +21,28 @@ export const Dashboard = () => {
         preset: '' // '1m', '3m', '6m', '1y'
     });
 
-    const [filteredData, setFilteredData] = useState(expenseData);
-
-    // Initialize dates to cover range or default
-    useEffect(() => {
-        // Set default view to all time or specific range?
-        // Plan says "default full view" on reset.
-        // Let's set start/end from data bounds initially or empty to show all.
-        // Actually, empty means all.
+    // Fetch Data
+    const fetchData = useCallback(async () => {
+        try {
+            const response = await getTransactions();
+            const data = response.data.map(item => ({
+                ...item,
+                date: item.date.split('T')[0] // Ensure YYYY-MM-DD
+            }));
+            setTransactions(data);
+        } catch (error) {
+            console.error("Failed to fetch transactions:", error);
+            // Optionally set error state here
+        }
     }, []);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
 
     // Filter Logic
     useEffect(() => {
-        let data = [...expenseData];
+        let data = [...transactions];
 
         if (filters.startDate) {
             data = data.filter(item => item.date >= filters.startDate);
@@ -36,24 +51,17 @@ export const Dashboard = () => {
             data = data.filter(item => item.date <= filters.endDate);
         }
         if (filters.category) {
-            data = data.filter(item => item.type === filters.category);
+            data = data.filter(item => item.category === filters.category);
         }
 
         setFilteredData(data);
-    }, [filters]);
+    }, [filters, transactions]);
 
     // Sort Logic
     const sortedData = useMemo(() => {
         let data = [...filteredData];
-        if (!sortConfig.key) return data; // No sort (default order from file? or just keep previous?)
-        // Actually "Reset" means default sorting? Which is usually data order or Date Descending?
-        // User said: "3rd click reset the sort".
-        // Let's assume reset means 'date desc' as default or just index order.
-        // Plan: "Logic: 1st click = Asc, 2nd click = Desc, 3rd click = Reset (Default sorting)"
-        // Default: Date Descending.
+        if (!sortConfig.key) return data;
 
-        // If key is null/reset, we fallback to Date Desc?
-        // Let's handle logic in handleSort to set key/direction.
         return data.sort((a, b) => {
             if (a[sortConfig.key] < b[sortConfig.key]) {
                 return sortConfig.direction === 'asc' ? -1 : 1;
@@ -131,6 +139,18 @@ export const Dashboard = () => {
         setSortConfig({ key: 'date', direction: 'desc' });
     };
 
+    const handleClearAll = async () => {
+        if (window.confirm("Are you sure you want to delete ALL transactions? This cannot be undone.")) {
+            try {
+                await clearTransactions();
+                fetchData(); // Refresh to empty state
+            } catch (error) {
+                console.error("Failed to clear transactions:", error);
+                alert("Failed to clear data.");
+            }
+        }
+    };
+
     // Stats
     const totalAmount = sortedData.reduce((sum, item) => sum + item.amount, 0);
 
@@ -138,28 +158,43 @@ export const Dashboard = () => {
     const categoryBreakdown = useMemo(() => {
         const totals = {};
         sortedData.forEach(item => {
-            totals[item.type] = (totals[item.type] || 0) + item.amount;
+            totals[item.category] = (totals[item.category] || 0) + item.amount;
         });
         return Object.entries(totals)
             .sort(([, a], [, b]) => b - a)
-            .map(([type, amount]) => ({ type, amount }));
+            .map(([category, amount]) => ({ category, amount }));
     }, [sortedData]);
 
 
-    // Unique Categories for dropdown
-    const allCategories = [...new Set(expenseData.map(i => i.type))].sort();
+    // Unique Categories for dropdown (from ALL transactions)
+    const allCategories = useMemo(() => {
+        return [...new Set(transactions.map(i => i.category))].sort();
+    }, [transactions]);
 
     return (
         <div className="dashboard-container">
-            {/* Middle Section (Filters) - Placed on top visually based on normal flow, but requested layout structure:
-          Upper: Charts
-          Middle: Filters
-          Lower: List
-          Wait, prompt said:
-          Upper Section: Left Panel (Bar), Right Panel (Pie, List)
-          Middle Section: Filter Row
-          Lower Section: Transaction List
-      */}
+            {/* Header / Upload Section */}
+            <div className="top-controls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <div style={{ flex: 1, maxWidth: '600px' }}>
+                    <FileUploader onUploadSuccess={fetchData} />
+                </div>
+                <div>
+                    <button
+                        onClick={handleClearAll}
+                        style={{
+                            backgroundColor: '#CF6679',
+                            color: 'white',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem'
+                        }}
+                    >
+                        Clear All Data
+                    </button>
+                </div>
+            </div>
 
             {/* Upper Section */}
             <section className="charts-section">
@@ -181,13 +216,13 @@ export const Dashboard = () => {
                     </div>
                     <div className="card category-list">
                         <h3>Category Breakdown</h3>
-                        {categoryBreakdown.map(({ type, amount }) => (
+                        {categoryBreakdown.map(({ category, amount }) => (
                             <div
-                                key={type}
-                                className={`category-item ${filters.category === type ? 'active' : ''}`}
-                                onClick={() => handleCategoryChange(type === filters.category ? '' : type)}
+                                key={category}
+                                className={`category-item ${filters.category === category ? 'active' : ''}`}
+                                onClick={() => handleCategoryChange(category === filters.category ? '' : category)}
                             >
-                                <span>{type}</span>
+                                <span>{category}</span>
                                 <span>${amount.toFixed(2)}</span>
                             </div>
                         ))}

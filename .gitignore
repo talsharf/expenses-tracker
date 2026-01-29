@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Database
+*.db
+*.sqlite
+server/*.db
+server/finance.db
+server/finance_v2.db
+
+# Security and Local Config
+.env
+uploads/
+*.csv

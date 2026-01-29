@@ -118,7 +118,7 @@ export const PieChartComponent = ({ data, onCategoryClick }) => {
     const chartData = useMemo(() => {
         const totals = {};
         data.forEach(item => {
-            totals[item.type] = (totals[item.type] || 0) + item.amount;
+            totals[item.category] = (totals[item.category] || 0) + item.amount;
         });
 
         const labels = Object.keys(totals);
