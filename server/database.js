@@ -26,6 +26,12 @@ db.serialize(() => {
         category TEXT,
         description TEXT
     )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL,
+        description TEXT NOT NULL
+    )`);
 });
 
 export default db;

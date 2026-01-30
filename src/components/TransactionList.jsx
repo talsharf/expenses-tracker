@@ -1,37 +1,119 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { deleteTransaction, updateTransaction, createRule } from '../api/client';
 
-export const TransactionList = ({ data, sortConfig, onSort }) => {
+export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated }) => {
+    const [editingId, setEditingId] = useState(null);
+    const [editCategory, setEditCategory] = useState('');
+
     const getSortIndicator = (key) => {
-        if (sortConfig.key !== key) return '↕'; // Neutral
+        if (sortConfig.key !== key) return '↕';
         if (sortConfig.direction === 'asc') return '↑';
         return '↓';
     };
+
+    const handleDelete = async (id) => {
+        try {
+            await deleteTransaction(id);
+            if (onTransactionUpdated) onTransactionUpdated();
+        } catch (error) {
+            console.error("Failed to delete transaction:", error);
+            alert("Failed to delete transaction");
+        }
+    };
+
+    const startEditing = (transaction) => {
+        setEditingId(transaction.id);
+        setEditCategory(transaction.category);
+    };
+
+    const saveCategory = async (transaction, newCategory) => {
+        if (newCategory === transaction.category) {
+            setEditingId(null);
+            return;
+        }
+
+        try {
+            // 1. Update Transaction
+            await updateTransaction(transaction.id, { category: newCategory });
+
+            // 2. Create Rule automatically
+            const descriptionKeyword = transaction.description;
+            if (descriptionKeyword) {
+                await createRule({ category: newCategory, description: descriptionKeyword });
+            }
+
+            setEditingId(null);
+            if (onTransactionUpdated) onTransactionUpdated();
+        } catch (error) {
+            console.error("Failed to update transaction:", error);
+            alert("Failed to update transaction");
+        }
+    };
+
+    const categories = [
+        "Food", "Shopping", "Transport", "Utilities", "Housing",
+        "Entertainment", "Health", "Travel", "Income", "Other", "Uncategorized"
+    ];
 
     return (
         <div className="transaction-list-section card">
             <h2>Recent Transactions</h2>
             <div className="table-container">
-                <table>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr>
-                            <th onClick={() => onSort('date')}>Date {getSortIndicator('date')}</th>
-                            <th>Description</th>
-                            <th>Category</th>
-                            <th onClick={() => onSort('amount')}>Amount {getSortIndicator('amount')}</th>
+                            <th onClick={() => onSort('date')} style={{ cursor: 'pointer' }}>Date {getSortIndicator('date')}</th>
+                            <th onClick={() => onSort('description')} style={{ textAlign: 'left', cursor: 'pointer' }}>Description {getSortIndicator('description')}</th>
+                            <th style={{ textAlign: 'left' }}>Category</th>
+                            <th onClick={() => onSort('amount')} style={{ cursor: 'pointer', textAlign: 'right' }}>Amount {getSortIndicator('amount')}</th>
+                            <th style={{ width: '50px' }}></th>
                         </tr>
                     </thead>
                     <tbody>
                         {data.map((item) => (
-                            <tr key={item.id}>
-                                <td>{item.date}</td>
-                                <td>{item.description}</td>
-                                <td>{item.category}</td>
-                                <td>${item.amount.toFixed(2)}</td>
+                            <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
+                                <td style={{ padding: '12px' }}>{item.date}</td>
+                                <td style={{ padding: '12px' }}>{item.description}</td>
+                                <td style={{ padding: '12px' }}>
+                                    {editingId === item.id ? (
+                                        <select
+                                            value={editCategory}
+                                            onChange={(e) => {
+                                                const newVal = e.target.value;
+                                                setEditCategory(newVal);
+                                                saveCategory(item, newVal);
+                                            }}
+                                            onBlur={() => setEditingId(null)}
+                                            autoFocus
+                                            style={{ padding: '4px' }}
+                                        >
+                                            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    ) : (
+                                        <span
+                                            onClick={() => startEditing(item)}
+                                            style={{ cursor: 'pointer', borderBottom: '1px dashed #ccc' }}
+                                            title="Click to edit category"
+                                        >
+                                            {item.category}
+                                        </span>
+                                    )}
+                                </td>
+                                <td style={{ padding: '12px', textAlign: 'right' }}>${item.amount.toFixed(2)}</td>
+                                <td style={{ padding: '12px', textAlign: 'center' }}>
+                                    <button
+                                        onClick={() => handleDelete(item.id)}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}
+                                        title="Delete Transaction"
+                                    >
+                                        🗑️
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                         {data.length === 0 && (
                             <tr>
-                                <td colSpan="4" style={{ textAlign: 'center', padding: '2rem' }}>
+                                <td colSpan="5" style={{ textAlign: 'center', padding: '2rem' }}>
                                     No transactions found for the selected filters.
                                 </td>
                             </tr>

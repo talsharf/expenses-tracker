@@ -55,6 +55,34 @@ router.delete('/transactions', (req, res) => {
     });
 });
 
+// DELETE /api/transactions/:id
+router.delete('/transactions/:id', (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM transactions WHERE id = ?", [id], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "Transaction deleted", changes: this.changes });
+    });
+});
+
+// PUT /api/transactions/:id
+router.put('/transactions/:id', (req, res) => {
+    const { category } = req.body;
+    const { id } = req.params;
+
+    // We only support updating category for now
+    const query = `UPDATE transactions SET category = ? WHERE id = ?`;
+    db.run(query, [category, id], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "Transaction updated", changes: this.changes });
+    });
+});
+
 // POST /api/upload
 router.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.file) {
@@ -152,3 +180,58 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 export default router;
+
+// Rules API
+
+// GET /api/rules
+router.get('/rules', (req, res) => {
+    db.all("SELECT * FROM rules", [], (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json(rows);
+    });
+});
+
+// POST /api/rules
+router.post('/rules', (req, res) => {
+    const { category, description } = req.body;
+    if (!category || !description) {
+        return res.status(400).json({ error: "Category and description are required" });
+    }
+    const query = `INSERT INTO rules (category, description) VALUES (?, ?)`;
+    db.run(query, [category, description], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ id: this.lastID, category, description });
+    });
+});
+
+// PUT /api/rules/:id
+router.put('/rules/:id', (req, res) => {
+    const { category, description } = req.body;
+    const { id } = req.params;
+    const query = `UPDATE rules SET category = ?, description = ? WHERE id = ?`;
+    db.run(query, [category, description, id], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "Rule updated", changes: this.changes });
+    });
+});
+
+// DELETE /api/rules/:id
+router.delete('/rules/:id', (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM rules WHERE id = ?", [id], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "Rule deleted", changes: this.changes });
+    });
+});

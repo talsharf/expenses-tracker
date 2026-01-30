@@ -4,11 +4,13 @@ import { BarChartComponent, PieChartComponent } from './Charts';
 import { TransactionList } from './TransactionList';
 import { getTransactions, clearTransactions } from '../api/client';
 import { FileUploader } from './FileUploader';
+import RulesModal from './RulesModal';
 
 export const Dashboard = () => {
     // Data State
     const [transactions, setTransactions] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
+    const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
 
     // Initial sort: Date Descending
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
@@ -76,9 +78,8 @@ export const Dashboard = () => {
     // Handlers
     const handleSort = (key) => {
         setSortConfig(current => {
-            if (current.key === key) {
-                if (current.direction === 'asc') return { key, direction: 'desc' };
-                if (current.direction === 'desc') return { key: 'date', direction: 'desc' }; // Reset to default
+            if (current.key === key && current.direction === 'asc') {
+                return { key, direction: 'desc' };
             }
             return { key, direction: 'asc' };
         });
@@ -178,7 +179,22 @@ export const Dashboard = () => {
                 <div style={{ flex: 1, maxWidth: '600px' }}>
                     <FileUploader onUploadSuccess={fetchData} />
                 </div>
-                <div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        onClick={() => setIsRulesModalOpen(true)}
+                        style={{
+                            backgroundColor: '#03DAC6',
+                            color: 'black',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Manage Rules
+                    </button>
                     <button
                         onClick={handleClearAll}
                         style={{
@@ -195,6 +211,8 @@ export const Dashboard = () => {
                     </button>
                 </div>
             </div>
+
+            <RulesModal isOpen={isRulesModalOpen} onClose={() => setIsRulesModalOpen(false)} />
 
             {/* Upper Section */}
             <section className="charts-section">
@@ -284,6 +302,7 @@ export const Dashboard = () => {
                 data={sortedData}
                 sortConfig={sortConfig}
                 onSort={handleSort}
+                onTransactionUpdated={fetchData}
             />
         </div>
     );
