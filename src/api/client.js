@@ -26,4 +26,10 @@ export const uploadFile = (file, bankAccountId) => {
 
 export const runRules = () => client.post('/rules/run');
 
+// Categories
+export const getCategories = () => client.get('/categories');
+export const createCategory = (data) => client.post('/categories', data);
+export const deleteCategory = (id) => client.delete(`/categories/${id}`);
+export const updateCategory = (id, data) => client.put(`/categories/${id}`, data);
+
 export default client;

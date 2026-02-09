@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { runRules } from '../api/client';
 
-const RulesModal = ({ isOpen, onClose, onRulesApplied }) => {
+const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
     const [rules, setRules] = useState([]);
     const [newRule, setNewRule] = useState({ category: '', description: '' });
     const [editingId, setEditingId] = useState(null);
@@ -77,10 +77,9 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied }) => {
         }
     };
 
-    const categories = [
-        "Food", "Shopping", "Transport", "Utilities", "Housing",
-        "Entertainment", "Health", "Travel", "Income", "Other", "Uncategorized"
-    ];
+    const categoryOptions = categories.length > 0
+        ? categories.map(c => c.name)
+        : ["Food", "Shopping", "Transport", "Utilities", "Housing", "Entertainment", "Health", "Travel", "Income", "Other", "Uncategorized"];
 
     if (!isOpen) return null;
 
@@ -108,7 +107,7 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied }) => {
                                 style={{ width: '100%', padding: '8px' }}
                             >
                                 <option value="">Select Category</option>
-                                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                         </div>
                         <div>
@@ -204,7 +203,7 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied }) => {
                                                     autoFocus
                                                     style={{ width: '100%', padding: '6px' }}
                                                 >
-                                                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                                    {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
                                                 </select>
                                             ) : (
                                                 <span

@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // import { expenseData } from '../data/expenses'; // Disabled mock data
 import { BarChartComponent, PieChartComponent } from './Charts';
 import { TransactionList } from './TransactionList';
-import { getTransactions, clearTransactions, getBankAccounts } from '../api/client';
 import { FileUploader } from './FileUploader';
 import RulesModal from './RulesModal';
 import AccountsModal from './AccountsModal';
+import CategoriesModal from './CategoriesModal';
+import { getTransactions, clearTransactions, getBankAccounts, getCategories } from '../api/client';
 
 export const Dashboard = () => {
     // Data State
@@ -13,7 +14,9 @@ export const Dashboard = () => {
     const [filteredData, setFilteredData] = useState([]);
     const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
     const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
+    const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
     const [accounts, setAccounts] = useState([]);
+    const [categories, setCategories] = useState([]);
 
     // Initial sort: Date Descending
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
@@ -39,6 +42,9 @@ export const Dashboard = () => {
 
             const accountsRes = await getBankAccounts();
             setAccounts(accountsRes.data);
+
+            const categoriesRes = await getCategories();
+            setCategories(categoriesRes.data);
         } catch (error) {
             console.error("Failed to fetch transactions:", error);
             // Optionally set error state here
@@ -229,6 +235,21 @@ export const Dashboard = () => {
                         Manage Accounts
                     </button>
                     <button
+                        onClick={() => setIsCategoriesModalOpen(true)}
+                        style={{
+                            backgroundColor: '#03DAC6',
+                            color: 'black',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Manage Categories
+                    </button>
+                    <button
                         onClick={handleClearAll}
                         style={{
                             backgroundColor: '#CF6679',
@@ -249,8 +270,10 @@ export const Dashboard = () => {
                 isOpen={isRulesModalOpen}
                 onClose={() => setIsRulesModalOpen(false)}
                 onRulesApplied={fetchData}
+                categories={categories}
             />
             <AccountsModal isOpen={isAccountsModalOpen} onClose={() => setIsAccountsModalOpen(false)} />
+            <CategoriesModal isOpen={isCategoriesModalOpen} onClose={() => setIsCategoriesModalOpen(false)} />
 
             {/* Upper Section */}
             <section className="charts-section">
@@ -358,6 +381,7 @@ export const Dashboard = () => {
                 onSort={handleSort}
                 onTransactionUpdated={fetchData}
                 accounts={accounts}
+                categories={categories}
             />
         </div >
     );

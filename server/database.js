@@ -39,6 +39,27 @@ db.serialize(() => {
         name TEXT NOT NULL,
         type TEXT NOT NULL
     )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE
+    )`, (err) => {
+        if (!err) {
+            // Seed categories if empty
+            db.get("SELECT count(*) as count FROM categories", (err, row) => {
+                if (!err && row.count === 0) {
+                    const defaults = [
+                        "Food", "Shopping", "Transport", "Utilities", "Housing",
+                        "Entertainment", "Health", "Travel", "Income", "Other"
+                    ];
+                    const stmt = db.prepare("INSERT INTO categories (name) VALUES (?)");
+                    defaults.forEach(cat => stmt.run(cat));
+                    stmt.finalize();
+                    console.log("Seeded default categories.");
+                }
+            });
+        }
+    });
 });
 
 export default db;

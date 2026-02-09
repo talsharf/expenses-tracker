@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { deleteTransaction, updateTransaction, createRule } from '../api/client';
 
-export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated, accounts = [] }) => {
+export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated, accounts = [], categories = [] }) => {
     const [editingId, setEditingId] = useState(null);
     const [editCategory, setEditCategory] = useState('');
 
@@ -58,10 +58,9 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
         }
     };
 
-    const categories = [
-        "Food", "Shopping", "Transport", "Utilities", "Housing",
-        "Entertainment", "Health", "Travel", "Income", "Other", "Uncategorized"
-    ];
+    const categoryOptions = categories.length > 0
+        ? categories.map(c => c.name)
+        : ["Food", "Shopping", "Transport", "Utilities", "Housing", "Entertainment", "Health", "Travel", "Income", "Other", "Uncategorized"];
 
     return (
         <div className="transaction-list-section card">
@@ -97,7 +96,7 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
                                             autoFocus
                                             style={{ padding: '4px' }}
                                         >
-                                            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                            {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
                                         </select>
                                     ) : (
                                         <span

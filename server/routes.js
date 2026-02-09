@@ -12,17 +12,15 @@ const upload = multer({ dest: 'uploads/' });
 const getGenAI = () => new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Helper to check for duplicates
+// Helper to check for duplicates
 const isDuplicate = (transaction) => {
     return new Promise((resolve, reject) => {
-        let query = `SELECT id FROM transactions WHERE date = ? AND amount = ? AND category = ?`;
-        const params = [transaction.date, transaction.amount, transaction.category];
-
-        if (transaction.bank_account_id) {
-            query += ` AND bank_account_id = ?`;
-            params.push(transaction.bank_account_id);
-        } else {
-            query += ` AND bank_account_id IS NULL`;
-        }
+        const query = `SELECT id FROM transactions WHERE date = ? AND amount = ? AND description = ?`;
+        const params = [
+            transaction.date,
+            transaction.amount,
+            transaction.description
+        ];
 
         db.get(query, params, (err, row) => {
             if (err) reject(err);
@@ -140,13 +138,22 @@ router.post('/upload', upload.single('file'), async (req, res) => {
                 },
             ];
 
+            // Fetch categories from DB for the prompt
+            const categories = await new Promise((resolve) => {
+                db.all("SELECT name FROM categories", (err, rows) => {
+                    if (err || !rows) resolve(["Food", "Shopping", "Transport", "Utilities", "Housing", "Entertainment", "Health", "Travel", "Income", "Other"]);
+                    else resolve(rows.map(r => r.name));
+                });
+            });
+            const categoryListStr = categories.join(', ');
+
             const prompt = `
                 Extract all financial transactions from this bank statement.
                 Return ONLY a raw JSON array. Do not include markdown formatting (like \`\`\`json).
                 Each object in the array should have:
                 - "date" (YYYY-MM-DD format)
                 - "amount" (number, positive for expenses)
-                - "category" (infer from description, choosing from: Food, Shopping, Transport, Utilities, Housing, Entertainment, Health, Travel, Income, Other)
+                - "category" (infer from description, choosing from: ${categoryListStr})
                 - "description" (full description)
             `;
 
@@ -356,5 +363,60 @@ router.delete('/bank-accounts/:id', (req, res) => {
             return;
         }
         res.json({ message: "Bank account deleted", changes: this.changes });
+    });
+});
+
+// --- Categories API ---
+
+// GET /api/categories
+router.get('/categories', (req, res) => {
+    db.all("SELECT * FROM categories ORDER BY name", [], (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json(rows);
+    });
+});
+
+// POST /api/categories
+router.post('/categories', (req, res) => {
+    const { name } = req.body;
+    if (!name) {
+        res.status(400).json({ error: "Name is required" });
+        return;
+    }
+    const query = "INSERT INTO categories (name) VALUES (?)";
+    db.run(query, [name], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ id: this.lastID, name });
+    });
+});
+
+// DELETE /api/categories/:id
+router.delete('/categories/:id', (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM categories WHERE id = ?", [id], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "Category deleted", changes: this.changes });
+    });
+});
+
+// PUT /api/categories/:id
+router.put('/categories/:id', (req, res) => {
+    const { name } = req.body;
+    const { id } = req.params;
+    db.run("UPDATE categories SET name = ? WHERE id = ?", [name, id], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "Category updated", changes: this.changes });
     });
 });
