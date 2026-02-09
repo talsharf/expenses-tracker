@@ -2,15 +2,18 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // import { expenseData } from '../data/expenses'; // Disabled mock data
 import { BarChartComponent, PieChartComponent } from './Charts';
 import { TransactionList } from './TransactionList';
-import { getTransactions, clearTransactions } from '../api/client';
+import { getTransactions, clearTransactions, getBankAccounts } from '../api/client';
 import { FileUploader } from './FileUploader';
 import RulesModal from './RulesModal';
+import AccountsModal from './AccountsModal';
 
 export const Dashboard = () => {
     // Data State
     const [transactions, setTransactions] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
+    const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
+    const [accounts, setAccounts] = useState([]);
 
     // Initial sort: Date Descending
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
@@ -20,6 +23,7 @@ export const Dashboard = () => {
         startDate: '',
         endDate: '',
         category: '',
+        bankAccountId: '',
         preset: '' // '1m', '3m', '6m', '1y'
     });
 
@@ -32,6 +36,9 @@ export const Dashboard = () => {
                 date: item.date.split('T')[0] // Ensure YYYY-MM-DD
             }));
             setTransactions(data);
+
+            const accountsRes = await getBankAccounts();
+            setAccounts(accountsRes.data);
         } catch (error) {
             console.error("Failed to fetch transactions:", error);
             // Optionally set error state here
@@ -54,6 +61,9 @@ export const Dashboard = () => {
         }
         if (filters.category) {
             data = data.filter(item => item.category === filters.category);
+        }
+        if (filters.bankAccountId) {
+            data = data.filter(item => item.bank_account_id === parseInt(filters.bankAccountId));
         }
 
         setFilteredData(data);
@@ -86,28 +96,35 @@ export const Dashboard = () => {
     };
 
     const handlePresetChange = (preset) => {
-        const end = new Date();
-        const start = new Date();
-        const endStr = end.toISOString().split('T')[0];
+        let startStr = '';
+        let endStr = '';
 
-        switch (preset) {
-            case '1m':
-                start.setMonth(end.getMonth() - 1);
-                break;
-            case '3m':
-                start.setMonth(end.getMonth() - 3);
-                break;
-            case '6m':
-                start.setMonth(end.getMonth() - 6);
-                break;
-            case '1y':
-                start.setFullYear(end.getFullYear() - 1);
-                break;
-            default:
-                // Custom or reset
-                return;
+        if (['2024', '2025', '2026'].includes(preset)) {
+            startStr = `${preset}-01-01`;
+            endStr = `${preset}-12-31`;
+        } else {
+            const end = new Date();
+            const start = new Date();
+            endStr = end.toISOString().split('T')[0];
+
+            switch (preset) {
+                case '1m':
+                    start.setMonth(end.getMonth() - 1);
+                    break;
+                case '3m':
+                    start.setMonth(end.getMonth() - 3);
+                    break;
+                case '6m':
+                    start.setMonth(end.getMonth() - 6);
+                    break;
+                case '1y':
+                    start.setFullYear(end.getFullYear() - 1);
+                    break;
+                default:
+                    return;
+            }
+            startStr = start.toISOString().split('T')[0];
         }
-        const startStr = start.toISOString().split('T')[0];
 
         setFilters(prev => ({
             ...prev,
@@ -135,6 +152,7 @@ export const Dashboard = () => {
             startDate: '',
             endDate: '',
             category: '',
+            bankAccountId: '',
             preset: ''
         });
         setSortConfig({ key: 'date', direction: 'desc' });
@@ -196,6 +214,21 @@ export const Dashboard = () => {
                         Manage Rules
                     </button>
                     <button
+                        onClick={() => setIsAccountsModalOpen(true)}
+                        style={{
+                            backgroundColor: '#03DAC6',
+                            color: 'black',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Manage Accounts
+                    </button>
+                    <button
                         onClick={handleClearAll}
                         style={{
                             backgroundColor: '#CF6679',
@@ -212,7 +245,12 @@ export const Dashboard = () => {
                 </div>
             </div>
 
-            <RulesModal isOpen={isRulesModalOpen} onClose={() => setIsRulesModalOpen(false)} />
+            <RulesModal
+                isOpen={isRulesModalOpen}
+                onClose={() => setIsRulesModalOpen(false)}
+                onRulesApplied={fetchData}
+            />
+            <AccountsModal isOpen={isAccountsModalOpen} onClose={() => setIsAccountsModalOpen(false)} />
 
             {/* Upper Section */}
             <section className="charts-section">
@@ -234,16 +272,18 @@ export const Dashboard = () => {
                     </div>
                     <div className="card category-list">
                         <h3>Category Breakdown</h3>
-                        {categoryBreakdown.map(({ category, amount }) => (
-                            <div
-                                key={category}
-                                className={`category-item ${filters.category === category ? 'active' : ''}`}
-                                onClick={() => handleCategoryChange(category === filters.category ? '' : category)}
-                            >
-                                <span>{category}</span>
-                                <span>${amount.toFixed(2)}</span>
-                            </div>
-                        ))}
+                        <div className="category-scroll-area">
+                            {categoryBreakdown.map(({ category, amount }) => (
+                                <div
+                                    key={category}
+                                    className={`category-item ${filters.category === category ? 'active' : ''}`}
+                                    onClick={() => handleCategoryChange(category === filters.category ? '' : category)}
+                                >
+                                    <span>{category}</span>
+                                    <span>${amount.toFixed(2)}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </section>
@@ -251,6 +291,17 @@ export const Dashboard = () => {
             {/* Middle Section */}
             <section className="filters-section">
                 <div className="filter-group">
+                    <label>Account:</label>
+                    <select
+                        value={filters.bankAccountId}
+                        onChange={(e) => setFilters(prev => ({ ...prev, bankAccountId: e.target.value }))}
+                    >
+                        <option value="">All Accounts</option>
+                        {accounts.map(acc => (
+                            <option key={acc.id} value={acc.id}>{acc.name}</option>
+                        ))}
+                    </select>
+
                     <label>Presets:</label>
                     <select
                         value={filters.preset}
@@ -261,6 +312,9 @@ export const Dashboard = () => {
                         <option value="3m">Last 3 Months</option>
                         <option value="6m">Last 6 Months</option>
                         <option value="1y">Last 1 Year</option>
+                        <option value="2024">2024</option>
+                        <option value="2025">2025</option>
+                        <option value="2026">2026</option>
                     </select>
 
                     <label>From:</label>
@@ -303,7 +357,8 @@ export const Dashboard = () => {
                 sortConfig={sortConfig}
                 onSort={handleSort}
                 onTransactionUpdated={fetchData}
+                accounts={accounts}
             />
-        </div>
+        </div >
     );
 };

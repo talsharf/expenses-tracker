@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import routes from './routes.js';
@@ -22,9 +23,17 @@ app.use(express.static(path.join(__dirname, '../dist'))); // Serve frontend buil
 app.use('/api', routes);
 
 // Fallback for SPA
-// Fallback for SPA
 app.use((req, res) => {
-    res.sendFile(path.join(__dirname, '../dist/index.html'));
+    // Only serve index.html for GET requests that accept HTML
+    if (req.method === 'GET' && req.accepts('html')) {
+        const indexPath = path.join(__dirname, '../dist/index.html');
+        if (fs.existsSync(indexPath)) {
+            res.sendFile(indexPath);
+            return;
+        }
+    }
+    // Otherwise 404
+    res.status(404).send('Not Found');
 });
 
 app.listen(PORT, () => {

@@ -24,13 +24,20 @@ db.serialize(() => {
         date TEXT NOT NULL,
         amount REAL NOT NULL,
         category TEXT,
-        description TEXT
+        description TEXT,
+        bank_account_id INTEGER
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS rules (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT NOT NULL,
         description TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS bank_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL
     )`);
 });
 

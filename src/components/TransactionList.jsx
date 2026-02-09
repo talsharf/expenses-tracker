@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { deleteTransaction, updateTransaction, createRule } from '../api/client';
 
-export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated }) => {
+export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated, accounts = [] }) => {
     const [editingId, setEditingId] = useState(null);
     const [editCategory, setEditCategory] = useState('');
 
@@ -9,6 +9,14 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
         if (sortConfig.key !== key) return '↕';
         if (sortConfig.direction === 'asc') return '↑';
         return '↓';
+    };
+
+
+
+    const getAccountName = (id) => {
+        if (!id) return '';
+        const acc = accounts.find(a => a.id === id);
+        return acc ? acc.name : '';
     };
 
     const handleDelete = async (id) => {
@@ -63,6 +71,7 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
                     <thead>
                         <tr>
                             <th onClick={() => onSort('date')} style={{ cursor: 'pointer' }}>Date {getSortIndicator('date')}</th>
+                            <th style={{ textAlign: 'left' }}>Account</th>
                             <th onClick={() => onSort('description')} style={{ textAlign: 'left', cursor: 'pointer' }}>Description {getSortIndicator('description')}</th>
                             <th style={{ textAlign: 'left' }}>Category</th>
                             <th onClick={() => onSort('amount')} style={{ cursor: 'pointer', textAlign: 'right' }}>Amount {getSortIndicator('amount')}</th>
@@ -73,6 +82,7 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
                         {data.map((item) => (
                             <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
                                 <td style={{ padding: '12px' }}>{item.date}</td>
+                                <td style={{ padding: '12px', color: '#888' }}>{getAccountName(item.bank_account_id)}</td>
                                 <td style={{ padding: '12px' }}>{item.description}</td>
                                 <td style={{ padding: '12px' }}>
                                     {editingId === item.id ? (
@@ -113,7 +123,7 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
                         ))}
                         {data.length === 0 && (
                             <tr>
-                                <td colSpan="5" style={{ textAlign: 'center', padding: '2rem' }}>
+                                <td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>
                                     No transactions found for the selected filters.
                                 </td>
                             </tr>

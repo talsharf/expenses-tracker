@@ -14,8 +14,17 @@ const getGenAI = () => new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // Helper to check for duplicates
 const isDuplicate = (transaction) => {
     return new Promise((resolve, reject) => {
-        const query = `SELECT id FROM transactions WHERE date = ? AND amount = ? AND category = ?`;
-        db.get(query, [transaction.date, transaction.amount, transaction.category], (err, row) => {
+        let query = `SELECT id FROM transactions WHERE date = ? AND amount = ? AND category = ?`;
+        const params = [transaction.date, transaction.amount, transaction.category];
+
+        if (transaction.bank_account_id) {
+            query += ` AND bank_account_id = ?`;
+            params.push(transaction.bank_account_id);
+        } else {
+            query += ` AND bank_account_id IS NULL`;
+        }
+
+        db.get(query, params, (err, row) => {
             if (err) reject(err);
             else resolve(!!row);
         });
@@ -25,8 +34,14 @@ const isDuplicate = (transaction) => {
 // Helper to insert transaction
 const insertTransaction = (transaction) => {
     return new Promise((resolve, reject) => {
-        const query = `INSERT INTO transactions (date, amount, category, description) VALUES (?, ?, ?, ?)`;
-        db.run(query, [transaction.date, transaction.amount, transaction.category, transaction.description || transaction.category], function (err) {
+        const query = `INSERT INTO transactions (date, amount, category, description, bank_account_id) VALUES (?, ?, ?, ?, ?)`;
+        db.run(query, [
+            transaction.date,
+            transaction.amount,
+            transaction.category,
+            transaction.description || transaction.category,
+            transaction.bank_account_id || null
+        ], function (err) {
             if (err) reject(err);
             else resolve(this.lastID);
         });
@@ -35,7 +50,18 @@ const insertTransaction = (transaction) => {
 
 // GET /api/transactions
 router.get('/transactions', (req, res) => {
-    db.all("SELECT * FROM transactions ORDER BY date DESC", [], (err, rows) => {
+    const { bank_account_id } = req.query;
+    let query = "SELECT * FROM transactions";
+    const params = [];
+
+    if (bank_account_id) {
+        query += " WHERE bank_account_id = ?";
+        params.push(bank_account_id);
+    }
+
+    query += " ORDER BY date DESC";
+
+    db.all(query, params, (err, rows) => {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
@@ -91,6 +117,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     const filePath = req.file.path;
     const mimeType = req.file.mimetype;
+    const bankAccountId = req.body.bank_account_id ? parseInt(req.body.bank_account_id) : null;
+    console.log("Upload Request Body:", req.body);
+    console.log("Parsed Bank Account ID:", bankAccountId);
     let transactions = [];
 
     try {
@@ -160,10 +189,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         // Insert unique transactions
         let addedCount = 0;
         for (const t of transactions) {
+            if (bankAccountId) {
+                t.bank_account_id = bankAccountId;
+            }
+            console.log("Processing transaction:", t);
             const isDup = await isDuplicate(t);
             if (!isDup) {
                 await insertTransaction(t);
                 addedCount++;
+            } else {
+                console.log("Skipping duplicate:", t);
             }
         }
 
@@ -177,6 +212,39 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         }
         res.status(500).json({ error: "Failed to process file: " + error.message });
     }
+});
+
+// POST /api/rules/run - Apply rules to all transactions
+router.post('/rules/run', (req, res) => {
+    db.all("SELECT * FROM rules", [], async (err, rules) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+
+        try {
+            let updates = 0;
+            for (const rule of rules) {
+                // Determine if rule.description is a keyword (user input) or pattern.
+                // Assuming simple substring match for now: %keyword%
+                const pattern = `%${rule.description}%`;
+                const query = `UPDATE transactions SET category = ? WHERE description LIKE ? AND category != ?`;
+
+                await new Promise((resolve, reject) => {
+                    db.run(query, [rule.category, pattern, rule.category], function (err) {
+                        if (err) reject(err);
+                        else {
+                            updates += this.changes;
+                            resolve();
+                        }
+                    });
+                });
+            }
+            res.json({ message: "Rules applied successfully", updates });
+        } catch (e) {
+            res.status(500).json({ error: "Failed to apply rules: " + e.message });
+        }
+    });
 });
 
 export default router;
@@ -233,5 +301,60 @@ router.delete('/rules/:id', (req, res) => {
             return;
         }
         res.json({ message: "Rule deleted", changes: this.changes });
+    });
+});
+
+// Bank Accounts API
+
+// GET /api/bank-accounts
+router.get('/bank-accounts', (req, res) => {
+    db.all("SELECT * FROM bank_accounts", [], (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json(rows);
+    });
+});
+
+// POST /api/bank-accounts
+router.post('/bank-accounts', (req, res) => {
+    const { name, type } = req.body;
+    if (!name || !type) {
+        return res.status(400).json({ error: "Name and type are required" });
+    }
+    const query = `INSERT INTO bank_accounts (name, type) VALUES (?, ?)`;
+    db.run(query, [name, type], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ id: this.lastID, name, type });
+    });
+});
+
+// PUT /api/bank-accounts/:id
+router.put('/bank-accounts/:id', (req, res) => {
+    const { name, type } = req.body;
+    const { id } = req.params;
+    const query = `UPDATE bank_accounts SET name = ?, type = ? WHERE id = ?`;
+    db.run(query, [name, type, id], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "Bank account updated", changes: this.changes });
+    });
+});
+
+// DELETE /api/bank-accounts/:id
+router.delete('/bank-accounts/:id', (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM bank_accounts WHERE id = ?", [id], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "Bank account deleted", changes: this.changes });
     });
 });

@@ -12,14 +12,18 @@ export const clearTransactions = () => client.delete('/transactions');
 export const deleteTransaction = (id) => client.delete(`/transactions/${id}`);
 export const updateTransaction = (id, data) => client.put(`/transactions/${id}`, data);
 export const createRule = (data) => client.post('/rules', data);
-export const uploadFile = (file) => {
+export const getBankAccounts = () => client.get('/bank-accounts');
+export const uploadFile = (file, bankAccountId) => {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('bank_account_id', bankAccountId);
     return client.post('/upload', formData, {
         headers: {
             'Content-Type': 'multipart/form-data',
         },
     });
 };
+
+export const runRules = () => client.post('/rules/run');
 
 export default client;

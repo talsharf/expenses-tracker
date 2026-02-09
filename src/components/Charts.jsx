@@ -148,8 +148,7 @@ export const PieChartComponent = ({ data, onCategoryClick }) => {
         maintainAspectRatio: false,
         plugins: {
             legend: {
-                position: 'right',
-                labels: { color: '#b0b0b0', boxWidth: 10 }
+                display: false,
             },
             title: {
                 display: true,

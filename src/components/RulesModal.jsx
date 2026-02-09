@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { runRules } from '../api/client';
 
-const RulesModal = ({ isOpen, onClose }) => {
+const RulesModal = ({ isOpen, onClose, onRulesApplied }) => {
     const [rules, setRules] = useState([]);
     const [newRule, setNewRule] = useState({ category: '', description: '' });
     const [editingId, setEditingId] = useState(null);
@@ -141,6 +142,39 @@ const RulesModal = ({ isOpen, onClose }) => {
                             Add
                         </button>
                     </div>
+                </div>
+
+                <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
+                    <button
+                        onClick={async () => {
+                            setLoading(true);
+                            try {
+                                const res = await runRules();
+                                alert(`Rules applied! ${res.data.updates} transactions updated.`);
+                                if (onRulesApplied) onRulesApplied();
+                                fetchRules(); // Optional, but good to refresh if anything changed here (unlikely)
+                            } catch (err) {
+                                console.error(err);
+                                alert("Failed to run rules");
+                            } finally {
+                                setLoading(false);
+                            }
+                        }}
+                        style={{
+                            backgroundColor: '#6200ee',
+                            color: 'white',
+                            border: 'none',
+                            padding: '10px 20px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '1rem',
+                            fontWeight: 'bold',
+                            width: '100%'
+                        }}
+                        disabled={loading}
+                    >
+                        {loading ? 'Running...' : 'Run All Rules on Existing Transactions'}
+                    </button>
                 </div>
 
                 <div className="rules-list">
