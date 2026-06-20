@@ -26,12 +26,10 @@ const MONTHS = [
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
-export const BarChartComponent = ({ data, dateRange }) => {
+export const BarChartComponent = ({ data, dateRange, type }) => {
     const chartData = useMemo(() => {
         // 1. Generate all months in range logic
         // We need to determine the span of months involved.
-        // However, the requirement says "consecutive chronological order" and "no month missing".
-
         // Parse range
         const start = new Date(dateRange.start);
         const end = new Date(dateRange.end);
@@ -52,7 +50,7 @@ export const BarChartComponent = ({ data, dateRange }) => {
             current.setMonth(current.getMonth() + 1);
         }
 
-        // If range is invalid or empty, handle gracefully (though logic shouldn't allow)
+        // If range is invalid or empty, handle gracefully
         if (months.length === 0) return { labels: [], datasets: [] };
 
         // Aggregate data
@@ -60,25 +58,34 @@ export const BarChartComponent = ({ data, dateRange }) => {
         months.forEach(m => totals[m.key] = 0);
 
         data.forEach(item => {
-            // item.date is YYYY-MM-DD
             const key = item.date.substring(0, 7); // YYYY-MM
             if (totals[key] !== undefined) {
                 totals[key] += item.amount;
             }
         });
 
+        const typeColors = {
+            'Income': '#03DAC6',
+            'Expense': '#bb86fc',
+            'Transfer': '#888888',
+            'Reimbursable': '#FF9F40',
+            'Investment': '#36A2EB'
+        };
+        const activeColor = typeColors[type] || '#bb86fc';
+        const activeLabel = type ? `Total ${type}` : 'Total Expenses';
+
         return {
-            labels: months.map(m => m.label), // Just month name as requested
+            labels: months.map(m => m.label),
             datasets: [
                 {
-                    label: 'Total Expenses',
+                    label: activeLabel,
                     data: months.map(m => totals[m.key]),
-                    backgroundColor: '#bb86fc', // Primary color
+                    backgroundColor: activeColor,
                     borderRadius: 4,
                 },
             ],
         };
-    }, [data, dateRange]);
+    }, [data, dateRange, type]);
 
     const options = {
         responsive: true,
@@ -89,7 +96,7 @@ export const BarChartComponent = ({ data, dateRange }) => {
             },
             title: {
                 display: true,
-                text: 'Monthly Expenses',
+                text: type ? `Monthly ${type}` : 'Monthly Expenses',
                 color: '#b0b0b0',
                 font: { size: 14 }
             },
@@ -114,7 +121,7 @@ export const BarChartComponent = ({ data, dateRange }) => {
     return <Bar data={chartData} options={options} />;
 };
 
-export const PieChartComponent = ({ data, onCategoryClick }) => {
+export const PieChartComponent = ({ data, onCategoryClick, type }) => {
     const chartData = useMemo(() => {
         const totals = {};
         data.forEach(item => {
@@ -152,7 +159,7 @@ export const PieChartComponent = ({ data, onCategoryClick }) => {
             },
             title: {
                 display: true,
-                text: 'Expenses by Category',
+                text: type ? `${type} by Category` : 'Expenses by Category',
                 color: '#b0b0b0',
             }
         },

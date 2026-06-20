@@ -17,6 +17,28 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
         }
     }, [isOpen]);
 
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+
+        if (isOpen) {
+            window.addEventListener('keydown', handleKeyDown);
+        }
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isOpen, onClose]);
+
+    const handleOverlayClick = (e) => {
+        if (e.target.classList.contains('modal-overlay')) {
+            onClose();
+        }
+    };
+
     const fetchRules = async () => {
         setLoading(true);
         try {
@@ -77,14 +99,62 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
         }
     };
 
-    const categoryOptions = categories.length > 0
-        ? categories.map(c => c.name)
-        : ["Food", "Shopping", "Transport", "Utilities", "Housing", "Entertainment", "Health", "Travel", "Income", "Other", "Uncategorized"];
+    const renderCategoryDropdownOptions = () => {
+        if (categories.length === 0) {
+            return (
+                <>
+                    <option value="Food">Food</option>
+                    <option value="Shopping">Shopping</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Utilities">Utilities</option>
+                    <option value="Housing">Housing</option>
+                    <option value="Entertainment">Entertainment</option>
+                    <option value="Health">Health</option>
+                    <option value="Travel">Travel</option>
+                    <option value="Other Expense">Other Expense</option>
+                    <option value="Salary">Salary</option>
+                    <option value="Freelance">Freelance</option>
+                    <option value="Bonus">Bonus</option>
+                    <option value="Other Income">Other Income</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Credit Card Payment">Credit Card Payment</option>
+                    <option value="Business Reimbursement">Business Reimbursement</option>
+                    <option value="Stocks/Mutual Funds">Stocks/Mutual Funds</option>
+                    <option value="Retirement Account">Retirement Account</option>
+                </>
+            );
+        }
+
+        const groups = {
+            'Expense': [],
+            'Income': [],
+            'Transfer': [],
+            'Reimbursable': [],
+            'Investment': []
+        };
+        categories.forEach(c => {
+            const t = c.type || 'Expense';
+            if (groups[t]) {
+                groups[t].push(c.name);
+            }
+        });
+
+        return Object.entries(groups).map(([type, names]) => {
+            if (names.length === 0) return null;
+            return (
+                <optgroup label={`${type}s`} key={type} style={{ backgroundColor: '#222', color: '#888', fontStyle: 'normal' }}>
+                    {names.map(name => (
+                        <option value={name} key={name} style={{ backgroundColor: '#1e1e1e', color: 'white' }}>{name}</option>
+                    ))}
+                </optgroup>
+            );
+        });
+    };
 
     if (!isOpen) return null;
 
     return (
-        <div className="modal-overlay" style={{
+        <div className="modal-overlay" onClick={handleOverlayClick} style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
         }}>
@@ -104,10 +174,10 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
                             <select
                                 value={newRule.category}
                                 onChange={(e) => setNewRule({ ...newRule, category: e.target.value })}
-                                style={{ width: '100%', padding: '8px' }}
+                                style={{ width: '100%', padding: '8px', backgroundColor: '#1e1e1e', color: 'white', border: '1px solid #444', borderRadius: '4px' }}
                             >
                                 <option value="">Select Category</option>
-                                {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                                {renderCategoryDropdownOptions()}
                             </select>
                         </div>
                         <div>
@@ -120,7 +190,7 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') handleAddRule();
                                 }}
-                                style={{ width: '100%', padding: '8px' }}
+                                style={{ width: '100%', padding: '8px', backgroundColor: '#1e1e1e', color: 'white', border: '1px solid #444', borderRadius: '4px' }}
                             />
                         </div>
                         <button
@@ -181,15 +251,15 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
                     {loading ? <p>Loading...</p> : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ borderBottom: '2px solid #eee' }}>
-                                    <th style={{ textAlign: 'left', padding: '10px' }}>Category</th>
-                                    <th style={{ textAlign: 'left', padding: '10px' }}>Description Keyword</th>
+                                <tr style={{ borderBottom: '2px solid #555' }}>
+                                    <th style={{ textAlign: 'left', padding: '10px', color: '#b0b0b0' }}>Category</th>
+                                    <th style={{ textAlign: 'left', padding: '10px', color: '#b0b0b0' }}>Description Keyword</th>
                                     <th style={{ width: '50px' }}></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {rules.map(rule => (
-                                    <tr key={rule.id} style={{ borderBottom: '1px solid #eee' }}>
+                                    <tr key={rule.id} style={{ borderBottom: '1px solid #333' }}>
                                         <td style={{ padding: '10px' }}>
                                             {editingId === rule.id && editingField === 'category' ? (
                                                 <select
@@ -201,9 +271,9 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
                                                     }}
                                                     onBlur={() => cancelEdit()}
                                                     autoFocus
-                                                    style={{ width: '100%', padding: '6px' }}
+                                                    style={{ width: '100%', padding: '6px', backgroundColor: '#1e1e1e', color: 'white', border: '1px solid #444', borderRadius: '4px' }}
                                                 >
-                                                    {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                                                    {renderCategoryDropdownOptions()}
                                                 </select>
                                             ) : (
                                                 <span

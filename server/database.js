@@ -23,6 +23,7 @@ db.serialize(() => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
         amount REAL NOT NULL,
+        type TEXT NOT NULL DEFAULT 'Expense',
         category TEXT,
         description TEXT,
         bank_account_id INTEGER
@@ -42,21 +43,53 @@ db.serialize(() => {
 
     db.run(`CREATE TABLE IF NOT EXISTS categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL DEFAULT 'Expense'
     )`, (err) => {
         if (!err) {
-            // Seed categories if empty
-            db.get("SELECT count(*) as count FROM categories", (err, row) => {
-                if (!err && row.count === 0) {
-                    const defaults = [
-                        "Food", "Shopping", "Transport", "Utilities", "Housing",
-                        "Entertainment", "Health", "Travel", "Income", "Other"
-                    ];
-                    const stmt = db.prepare("INSERT INTO categories (name) VALUES (?)");
-                    defaults.forEach(cat => stmt.run(cat));
-                    stmt.finalize();
-                    console.log("Seeded default categories.");
+            // Apply migrations for existing DBs
+            db.run(`ALTER TABLE transactions ADD COLUMN type TEXT NOT NULL DEFAULT 'Expense'`, (errTx) => {
+                if (!errTx) console.log("Migration: Added type column to transactions table.");
+            });
+
+            db.run(`ALTER TABLE categories ADD COLUMN type TEXT NOT NULL DEFAULT 'Expense'`, (errCat) => {
+                if (!errCat) {
+                    console.log("Migration: Added type column to categories table.");
                 }
+                // Update old 'Income' category type
+                db.run(`UPDATE categories SET type = 'Income' WHERE name = 'Income'`);
+
+                // Seed new default categories if they don't exist
+                const defaults = [
+                    { name: "Food", type: "Expense" },
+                    { name: "Shopping", type: "Expense" },
+                    { name: "Transport", type: "Expense" },
+                    { name: "Utilities", type: "Expense" },
+                    { name: "Housing", type: "Expense" },
+                    { name: "Entertainment", type: "Expense" },
+                    { name: "Health", type: "Expense" },
+                    { name: "Travel", type: "Expense" },
+                    { name: "Other Expense", type: "Expense" },
+                    { name: "Salary", type: "Income" },
+                    { name: "Freelance", type: "Income" },
+                    { name: "Bonus", type: "Income" },
+                    { name: "Other Income", type: "Income" },
+                    { name: "Bank Transfer", type: "Transfer" },
+                    { name: "Credit Card Payment", type: "Transfer" },
+                    { name: "Business Reimbursement", type: "Reimbursable" },
+                    { name: "Stocks/Mutual Funds", type: "Investment" },
+                    { name: "Retirement Account", type: "Investment" }
+                ];
+                defaults.forEach(cat => {
+                    db.run("INSERT OR IGNORE INTO categories (name, type) VALUES (?, ?)", [cat.name, cat.type]);
+                });
+
+                // Update transaction types to match their category's type
+                db.run(`UPDATE transactions SET type = (SELECT type FROM categories WHERE categories.name = transactions.category) WHERE category IS NOT NULL AND EXISTS (SELECT 1 FROM categories WHERE categories.name = transactions.category)`, (errAlign) => {
+                    if (!errAlign) {
+                        console.log("Migration: Aligned transaction types with their category types.");
+                    }
+                });
             });
         }
     });

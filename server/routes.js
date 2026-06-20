@@ -32,10 +32,11 @@ const isDuplicate = (transaction) => {
 // Helper to insert transaction
 const insertTransaction = (transaction) => {
     return new Promise((resolve, reject) => {
-        const query = `INSERT INTO transactions (date, amount, category, description, bank_account_id) VALUES (?, ?, ?, ?, ?)`;
+        const query = `INSERT INTO transactions (date, amount, type, category, description, bank_account_id) VALUES (?, ?, ?, ?, ?, ?)`;
         db.run(query, [
             transaction.date,
             transaction.amount,
+            transaction.type || 'Expense',
             transaction.category,
             transaction.description || transaction.category,
             transaction.bank_account_id || null
@@ -93,12 +94,27 @@ router.delete('/transactions/:id', (req, res) => {
 
 // PUT /api/transactions/:id
 router.put('/transactions/:id', (req, res) => {
-    const { category } = req.body;
+    const { category, type } = req.body;
     const { id } = req.params;
 
-    // We only support updating category for now
-    const query = `UPDATE transactions SET category = ? WHERE id = ?`;
-    db.run(query, [category, id], function (err) {
+    let query = `UPDATE transactions SET `;
+    const fields = [];
+    const params = [];
+    if (category) {
+        fields.push("category = ?");
+        params.push(category);
+    }
+    if (type) {
+        fields.push("type = ?");
+        params.push(type);
+    }
+    if (fields.length === 0) {
+        return res.status(400).json({ error: "Nothing to update" });
+    }
+    query += fields.join(", ") + " WHERE id = ?";
+    params.push(id);
+
+    db.run(query, params, function (err) {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
@@ -152,7 +168,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
                 Return ONLY a raw JSON array. Do not include markdown formatting (like \`\`\`json).
                 Each object in the array should have:
                 - "date" (YYYY-MM-DD format)
-                - "amount" (number, positive for expenses)
+                - "amount" (number, positive)
+                - "type" (determine if it is: "Income", "Expense", "Transfer", "Reimbursable", "Investment")
                 - "category" (infer from description, choosing from: ${categoryListStr})
                 - "description" (full description)
             `;
@@ -173,15 +190,41 @@ router.post('/upload', upload.single('file'), async (req, res) => {
                     .pipe(csv())
                     .on('data', (data) => {
                         const date = data.Date || data.date;
-                        const amount = parseFloat(data.Amount || data.amount);
-                        const type = data.Category || data.Description || data.description || 'Uncategorized';
+                        const originalAmount = parseFloat(data.Amount || data.amount);
+                        const desc = data.Description || data.description || data.Category || data.category || '';
+                        const categoryHeader = data.Category || data.category || '';
 
-                        if (date && !isNaN(amount)) {
+                        if (date && !isNaN(originalAmount)) {
+                            // Infer Type based on amount sign and description keywords
+                            let inferredType = originalAmount > 0 ? 'Income' : 'Expense';
+                            const descLower = desc.toLowerCase();
+                            
+                            if (descLower.includes('transfer') || descLower.includes('savings') || descLower.includes('cc payment') || descLower.includes('credit card payment') || descLower.includes('wire')) {
+                                inferredType = 'Transfer';
+                            } else if (descLower.includes('reimburse') || descLower.includes('expensify') || descLower.includes('corporate refund')) {
+                                inferredType = 'Reimbursable';
+                            } else if (descLower.includes('schwab') || descLower.includes('fidelity') || descLower.includes('vanguard') || descLower.includes('investment') || descLower.includes('buy stock')) {
+                                inferredType = 'Investment';
+                            }
+
+                            // Determine a default category for the type if not matched
+                            let inferredCategory = categoryHeader || 'Other';
+                            if (inferredType === 'Transfer') {
+                                inferredCategory = 'Bank Transfer';
+                            } else if (inferredType === 'Investment') {
+                                inferredCategory = 'Stocks/Mutual Funds';
+                            } else if (inferredType === 'Reimbursable') {
+                                inferredCategory = 'Business Reimbursement';
+                            } else if (inferredType === 'Income' && (!categoryHeader || categoryHeader.toLowerCase().includes('uncategorized'))) {
+                                inferredCategory = 'Salary';
+                            }
+
                             results.push({
                                 date: new Date(date).toISOString().split('T')[0],
-                                amount: Math.abs(amount),
-                                type: type,
-                                description: data.Description || data.description || type
+                                amount: Math.abs(originalAmount),
+                                type: inferredType,
+                                category: inferredCategory,
+                                description: desc || inferredCategory
                             });
                         }
                     })
@@ -235,10 +278,17 @@ router.post('/rules/run', (req, res) => {
                 // Determine if rule.description is a keyword (user input) or pattern.
                 // Assuming simple substring match for now: %keyword%
                 const pattern = `%${rule.description}%`;
-                const query = `UPDATE transactions SET category = ? WHERE description LIKE ? AND category != ?`;
+                const query = `
+                    UPDATE transactions 
+                    SET 
+                        category = ?, 
+                        type = COALESCE((SELECT type FROM categories WHERE categories.name = ?), 'Expense')
+                    WHERE 
+                        description LIKE ? AND (category != ? OR category IS NULL)
+                `;
 
                 await new Promise((resolve, reject) => {
-                    db.run(query, [rule.category, pattern, rule.category], function (err) {
+                    db.run(query, [rule.category, rule.category, pattern, rule.category], function (err) {
                         if (err) reject(err);
                         else {
                             updates += this.changes;
@@ -370,7 +420,7 @@ router.delete('/bank-accounts/:id', (req, res) => {
 
 // GET /api/categories
 router.get('/categories', (req, res) => {
-    db.all("SELECT * FROM categories ORDER BY name", [], (err, rows) => {
+    db.all("SELECT * FROM categories ORDER BY type, name", [], (err, rows) => {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
@@ -381,18 +431,18 @@ router.get('/categories', (req, res) => {
 
 // POST /api/categories
 router.post('/categories', (req, res) => {
-    const { name } = req.body;
+    const { name, type } = req.body;
     if (!name) {
         res.status(400).json({ error: "Name is required" });
         return;
     }
-    const query = "INSERT INTO categories (name) VALUES (?)";
-    db.run(query, [name], function (err) {
+    const query = "INSERT INTO categories (name, type) VALUES (?, ?)";
+    db.run(query, [name, type || 'Expense'], function (err) {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
         }
-        res.json({ id: this.lastID, name });
+        res.json({ id: this.lastID, name, type: type || 'Expense' });
     });
 });
 
@@ -410,9 +460,27 @@ router.delete('/categories/:id', (req, res) => {
 
 // PUT /api/categories/:id
 router.put('/categories/:id', (req, res) => {
-    const { name } = req.body;
+    const { name, type } = req.body;
     const { id } = req.params;
-    db.run("UPDATE categories SET name = ? WHERE id = ?", [name, id], function (err) {
+    
+    let query = `UPDATE categories SET `;
+    const fields = [];
+    const params = [];
+    if (name) {
+        fields.push("name = ?");
+        params.push(name);
+    }
+    if (type) {
+        fields.push("type = ?");
+        params.push(type);
+    }
+    if (fields.length === 0) {
+        return res.status(400).json({ error: "Nothing to update" });
+    }
+    query += fields.join(", ") + " WHERE id = ?";
+    params.push(id);
+    
+    db.run(query, params, function (err) {
         if (err) {
             res.status(500).json({ error: err.message });
             return;

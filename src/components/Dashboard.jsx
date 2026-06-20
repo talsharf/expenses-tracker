@@ -11,7 +11,6 @@ import { getTransactions, clearTransactions, getBankAccounts, getCategories } fr
 export const Dashboard = () => {
     // Data State
     const [transactions, setTransactions] = useState([]);
-    const [filteredData, setFilteredData] = useState([]);
     const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
     const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
     const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
@@ -25,6 +24,7 @@ export const Dashboard = () => {
     const [filters, setFilters] = useState({
         startDate: '',
         endDate: '',
+        type: '', // Income, Expense, Transfer, Reimbursable, Investment
         category: '',
         bankAccountId: '',
         preset: '' // '1m', '3m', '6m', '1y'
@@ -47,7 +47,6 @@ export const Dashboard = () => {
             setCategories(categoriesRes.data);
         } catch (error) {
             console.error("Failed to fetch transactions:", error);
-            // Optionally set error state here
         }
     }, []);
 
@@ -55,29 +54,36 @@ export const Dashboard = () => {
         fetchData();
     }, [fetchData]);
 
-    // Filter Logic
-    useEffect(() => {
+    // Filter base transactions (by date range, bank account)
+    const baseTransactions = useMemo(() => {
         let data = [...transactions];
-
         if (filters.startDate) {
             data = data.filter(item => item.date >= filters.startDate);
         }
         if (filters.endDate) {
             data = data.filter(item => item.date <= filters.endDate);
         }
-        if (filters.category) {
-            data = data.filter(item => item.category === filters.category);
-        }
         if (filters.bankAccountId) {
             data = data.filter(item => item.bank_account_id === parseInt(filters.bankAccountId));
         }
+        return data;
+    }, [filters.startDate, filters.endDate, filters.bankAccountId, transactions]);
 
-        setFilteredData(data);
-    }, [filters, transactions]);
+    // Apply type and category filters on top of base
+    const filteredTransactions = useMemo(() => {
+        let data = [...baseTransactions];
+        if (filters.type) {
+            data = data.filter(item => item.type === filters.type);
+        }
+        if (filters.category) {
+            data = data.filter(item => item.category === filters.category);
+        }
+        return data;
+    }, [baseTransactions, filters.type, filters.category]);
 
     // Sort Logic
     const sortedData = useMemo(() => {
-        let data = [...filteredData];
+        let data = [...filteredTransactions];
         if (!sortConfig.key) return data;
 
         return data.sort((a, b) => {
@@ -89,7 +95,7 @@ export const Dashboard = () => {
             }
             return 0;
         });
-    }, [filteredData, sortConfig]);
+    }, [filteredTransactions, sortConfig]);
 
     // Handlers
     const handleSort = (key) => {
@@ -157,6 +163,7 @@ export const Dashboard = () => {
         setFilters({
             startDate: '',
             endDate: '',
+            type: '',
             category: '',
             bankAccountId: '',
             preset: ''
@@ -176,10 +183,39 @@ export const Dashboard = () => {
         }
     };
 
-    // Stats
-    const totalAmount = sortedData.reduce((sum, item) => sum + item.amount, 0);
+    // KPI Summary Calculations (from baseTransactions, ignoring type filters)
+    const kpis = useMemo(() => {
+        let income = 0;
+        let expense = 0;
+        let investment = 0;
+        let reimbursable = 0;
+        let transfer = 0;
 
-    // Category Breakdown logic
+        baseTransactions.forEach(item => {
+            const amt = item.amount || 0;
+            if (item.type === 'Income') income += amt;
+            else if (item.type === 'Expense') expense += amt;
+            else if (item.type === 'Investment') investment += amt;
+            else if (item.type === 'Reimbursable') reimbursable += amt;
+            else if (item.type === 'Transfer') transfer += amt;
+        });
+
+        return {
+            income,
+            expense,
+            investment,
+            reimbursable,
+            transfer,
+            net: income - expense - investment
+        };
+    }, [baseTransactions]);
+
+    // Filtered Total based on currently selected filters (sortedData)
+    const totalAmount = useMemo(() => {
+        return sortedData.reduce((sum, item) => sum + item.amount, 0);
+    }, [sortedData]);
+
+    // Category Breakdown logic (from sortedData)
     const categoryBreakdown = useMemo(() => {
         const totals = {};
         sortedData.forEach(item => {
@@ -190,11 +226,13 @@ export const Dashboard = () => {
             .map(([category, amount]) => ({ category, amount }));
     }, [sortedData]);
 
-
-    // Unique Categories for dropdown (from ALL transactions)
-    const allCategories = useMemo(() => {
-        return [...new Set(transactions.map(i => i.category))].sort();
-    }, [transactions]);
+    // Dynamic categories for dropdown, filtered by the active transaction type
+    const filteredCategoriesForDropdown = useMemo(() => {
+        if (!filters.type) {
+            return [...new Set(categories.map(c => c.name))].sort();
+        }
+        return [...new Set(categories.filter(c => c.type === filters.type).map(c => c.name))].sort();
+    }, [categories, filters.type]);
 
     return (
         <div className="dashboard-container">
@@ -275,6 +313,92 @@ export const Dashboard = () => {
             <AccountsModal isOpen={isAccountsModalOpen} onClose={() => setIsAccountsModalOpen(false)} />
             <CategoriesModal isOpen={isCategoriesModalOpen} onClose={() => setIsCategoriesModalOpen(false)} />
 
+            {/* KPI Summary Cards */}
+            <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '1.5rem' }}>
+                <div 
+                    className={`kpi-card ${filters.type === 'Income' ? 'active' : ''}`} 
+                    onClick={() => setFilters(prev => ({ ...prev, type: prev.type === 'Income' ? '' : 'Income', category: '' }))}
+                    style={{
+                        padding: '12px', borderRadius: '8px', backgroundColor: '#1e1e1e', border: '1px solid #333', cursor: 'pointer',
+                        borderColor: filters.type === 'Income' ? '#03DAC6' : '#333', transition: 'all 0.2s', textAlign: 'center'
+                    }}
+                >
+                    <div style={{ fontSize: '0.8rem', color: '#888' }}>Total Income</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#03DAC6', marginTop: '4px' }}>
+                        +${kpis.income.toFixed(2)}
+                    </div>
+                </div>
+
+                <div 
+                    className={`kpi-card ${filters.type === 'Expense' ? 'active' : ''}`} 
+                    onClick={() => setFilters(prev => ({ ...prev, type: prev.type === 'Expense' ? '' : 'Expense', category: '' }))}
+                    style={{
+                        padding: '12px', borderRadius: '8px', backgroundColor: '#1e1e1e', border: '1px solid #333', cursor: 'pointer',
+                        borderColor: filters.type === 'Expense' ? '#bb86fc' : '#333', transition: 'all 0.2s', textAlign: 'center'
+                    }}
+                >
+                    <div style={{ fontSize: '0.8rem', color: '#888' }}>Total Expenses</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#bb86fc', marginTop: '4px' }}>
+                        -${kpis.expense.toFixed(2)}
+                    </div>
+                </div>
+
+                <div 
+                    className={`kpi-card ${filters.type === 'Investment' ? 'active' : ''}`} 
+                    onClick={() => setFilters(prev => ({ ...prev, type: prev.type === 'Investment' ? '' : 'Investment', category: '' }))}
+                    style={{
+                        padding: '12px', borderRadius: '8px', backgroundColor: '#1e1e1e', border: '1px solid #333', cursor: 'pointer',
+                        borderColor: filters.type === 'Investment' ? '#36A2EB' : '#333', transition: 'all 0.2s', textAlign: 'center'
+                    }}
+                >
+                    <div style={{ fontSize: '0.8rem', color: '#888' }}>Investments</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#36A2EB', marginTop: '4px' }}>
+                        -${kpis.investment.toFixed(2)}
+                    </div>
+                </div>
+
+                <div 
+                    className={`kpi-card ${filters.type === 'Reimbursable' ? 'active' : ''}`} 
+                    onClick={() => setFilters(prev => ({ ...prev, type: prev.type === 'Reimbursable' ? '' : 'Reimbursable', category: '' }))}
+                    style={{
+                        padding: '12px', borderRadius: '8px', backgroundColor: '#1e1e1e', border: '1px solid #333', cursor: 'pointer',
+                        borderColor: filters.type === 'Reimbursable' ? '#FF9F40' : '#333', transition: 'all 0.2s', textAlign: 'center'
+                    }}
+                >
+                    <div style={{ fontSize: '0.8rem', color: '#888' }}>Reimbursable</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#FF9F40', marginTop: '4px' }}>
+                        ${kpis.reimbursable.toFixed(2)}
+                    </div>
+                </div>
+
+                <div 
+                    className={`kpi-card ${filters.type === 'Transfer' ? 'active' : ''}`} 
+                    onClick={() => setFilters(prev => ({ ...prev, type: prev.type === 'Transfer' ? '' : 'Transfer', category: '' }))}
+                    style={{
+                        padding: '12px', borderRadius: '8px', backgroundColor: '#1e1e1e', border: '1px solid #333', cursor: 'pointer',
+                        borderColor: filters.type === 'Transfer' ? '#888888' : '#333', transition: 'all 0.2s', textAlign: 'center'
+                    }}
+                >
+                    <div style={{ fontSize: '0.8rem', color: '#888' }}>Transfers</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#888888', marginTop: '4px' }}>
+                        ${kpis.transfer.toFixed(2)}
+                    </div>
+                </div>
+
+                <div 
+                    className="kpi-card" 
+                    style={{
+                        padding: '12px', borderRadius: '8px', backgroundColor: '#1e1e1e', border: '1px solid #333',
+                        borderColor: kpis.net >= 0 ? '#03DAC6' : '#CF6679', textAlign: 'center'
+                    }}
+                >
+                    <div style={{ fontSize: '0.8rem', color: '#888' }}>Net Cash Flow</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: kpis.net >= 0 ? '#03DAC6' : '#CF6679', marginTop: '4px' }}>
+                        {kpis.net >= 0 ? '+' : ''}${kpis.net.toFixed(2)}
+                    </div>
+                </div>
+            </div>
+
             {/* Upper Section */}
             <section className="charts-section">
                 <div className="card chart-container-left">
@@ -284,6 +408,7 @@ export const Dashboard = () => {
                             start: filters.startDate || '2024-01-01',
                             end: filters.endDate || '2025-12-30'
                         }}
+                        type={filters.type}
                     />
                 </div>
                 <div className="right-panel">
@@ -291,6 +416,7 @@ export const Dashboard = () => {
                         <PieChartComponent
                             data={sortedData}
                             onCategoryClick={handleCategoryChange}
+                            type={filters.type}
                         />
                     </div>
                     <div className="card category-list">
@@ -323,6 +449,19 @@ export const Dashboard = () => {
                         {accounts.map(acc => (
                             <option key={acc.id} value={acc.id}>{acc.name}</option>
                         ))}
+                    </select>
+
+                    <label>Type:</label>
+                    <select
+                        value={filters.type}
+                        onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value, category: '' }))}
+                    >
+                        <option value="">All Types</option>
+                        <option value="Expense">Expense</option>
+                        <option value="Income">Income</option>
+                        <option value="Transfer">Transfer</option>
+                        <option value="Reimbursable">Reimbursable</option>
+                        <option value="Investment">Investment</option>
                     </select>
 
                     <label>Presets:</label>
@@ -363,14 +502,14 @@ export const Dashboard = () => {
                         onChange={(e) => handleCategoryChange(e.target.value)}
                     >
                         <option value="">All Categories</option>
-                        {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                        {filteredCategoriesForDropdown.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
 
                     <button className="btn-reset" onClick={handleReset}>Reset Filters</button>
                 </div>
 
                 <div className="total-stats">
-                    Total: ${totalAmount.toFixed(2)}
+                    Filtered Total: ${totalAmount.toFixed(2)}
                 </div>
             </section>
 
