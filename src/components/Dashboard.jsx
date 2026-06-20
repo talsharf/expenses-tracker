@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // import { expenseData } from '../data/expenses'; // Disabled mock data
 import { BarChartComponent, PieChartComponent } from './Charts';
 import { TransactionList } from './TransactionList';
-import { FileUploader } from './FileUploader';
 import RulesModal from './RulesModal';
 import AccountsModal from './AccountsModal';
 import CategoriesModal from './CategoriesModal';
+import DocumentsModal from './DocumentsModal';
 import { getTransactions, clearTransactions, getBankAccounts, getCategories } from '../api/client';
 
 export const Dashboard = () => {
@@ -13,6 +13,7 @@ export const Dashboard = () => {
     const [transactions, setTransactions] = useState([]);
     const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
     const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
+    const [isDocumentsModalOpen, setIsDocumentsModalOpen] = useState(false);
     const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
     const [accounts, setAccounts] = useState([]);
     const [categories, setCategories] = useState([]);
@@ -236,12 +237,24 @@ export const Dashboard = () => {
 
     return (
         <div className="dashboard-container">
-            {/* Header / Upload Section */}
-            <div className="top-controls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <div style={{ flex: 1, maxWidth: '600px' }}>
-                    <FileUploader onUploadSuccess={fetchData} />
-                </div>
+            {/* Header Controls */}
+            <div className="top-controls" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        onClick={() => setIsDocumentsModalOpen(true)}
+                        style={{
+                            backgroundColor: '#bb86fc',
+                            color: 'black',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Manage Documents
+                    </button>
                     <button
                         onClick={() => setIsRulesModalOpen(true)}
                         style={{
@@ -312,6 +325,11 @@ export const Dashboard = () => {
             />
             <AccountsModal isOpen={isAccountsModalOpen} onClose={() => setIsAccountsModalOpen(false)} />
             <CategoriesModal isOpen={isCategoriesModalOpen} onClose={() => setIsCategoriesModalOpen(false)} />
+            <DocumentsModal 
+                isOpen={isDocumentsModalOpen} 
+                onClose={() => setIsDocumentsModalOpen(false)} 
+                onTransactionsUpdated={fetchData}
+            />
 
             {/* KPI Summary Cards */}
             <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '1.5rem' }}>

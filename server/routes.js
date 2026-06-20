@@ -29,23 +29,6 @@ const isDuplicate = (transaction) => {
     });
 };
 
-// Helper to insert transaction
-const insertTransaction = (transaction) => {
-    return new Promise((resolve, reject) => {
-        const query = `INSERT INTO transactions (date, amount, type, category, description, bank_account_id) VALUES (?, ?, ?, ?, ?, ?)`;
-        db.run(query, [
-            transaction.date,
-            transaction.amount,
-            transaction.type || 'Expense',
-            transaction.category,
-            transaction.description || transaction.category,
-            transaction.bank_account_id || null
-        ], function (err) {
-            if (err) reject(err);
-            else resolve(this.lastID);
-        });
-    });
-};
 
 // GET /api/transactions
 router.get('/transactions', (req, res) => {
@@ -123,146 +106,443 @@ router.put('/transactions/:id', (req, res) => {
     });
 });
 
-// POST /api/upload
-router.post('/upload', upload.single('file'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: "No file uploaded" });
+// Helper to insert transaction
+const insertTransaction = (transaction) => {
+    return new Promise((resolve, reject) => {
+        const query = `INSERT INTO transactions (date, amount, type, category, description, bank_account_id, document_id) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+        db.run(query, [
+            transaction.date,
+            transaction.amount,
+            transaction.type || 'Expense',
+            transaction.category,
+            transaction.description || transaction.category,
+            transaction.bank_account_id || null,
+            transaction.document_id || null
+        ], function (err) {
+            if (err) reject(err);
+            else resolve(this.lastID);
+        });
+    });
+};
+
+// Helper to extract metadata from CSV filename and content snippet
+const extractCsvMetadata = async (filePath, filename) => {
+    const genAI = getGenAI();
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+    
+    // Read the beginning of the file (first 2048 bytes)
+    let fileContent = '';
+    try {
+        const buffer = Buffer.alloc(2048);
+        const fd = fs.openSync(filePath, 'r');
+        const bytesRead = fs.readSync(fd, buffer, 0, 2048, 0);
+        fs.closeSync(fd);
+        fileContent = buffer.toString('utf8', 0, bytesRead);
+    } catch (e) {
+        console.error("Error reading CSV chunk for metadata:", e);
     }
 
-    const filePath = req.file.path;
-    const mimeType = req.file.mimetype;
-    const bankAccountId = req.body.bank_account_id ? parseInt(req.body.bank_account_id) : null;
-    console.log("Upload Request Body:", req.body);
-    console.log("Parsed Bank Account ID:", bankAccountId);
-    let transactions = [];
+    const prompt = `
+        You are analyzing a bank statement CSV file to extract account metadata.
+        Filename: ${filename}
+        File Snippet:
+        ${fileContent}
 
-    try {
-        if (mimeType === 'application/pdf') {
-            // Process PDF with Gemini
-            const genAI = getGenAI();
-            const modelName = "gemini-flash-latest";
-            console.log("Using Gemini Model:", modelName);
-            const model = genAI.getGenerativeModel({ model: modelName });
+        Extract:
+        1. Bank or financial institution name (e.g., Chase, Wells Fargo, Bank of America, Visa, Mastercard).
+        2. Account number or card number ending digits (e.g., last 4 digits). Return ONLY digits. If none found, return "".
+        3. Account type (choose one: "Checking", "Savings", "Credit Card", "Investment", "Cash", "Other").
 
-            const fileData = fs.readFileSync(filePath);
-            const imageParts = [
-                {
-                    inlineData: {
-                        data: fileData.toString("base64"),
-                        mimeType: mimeType,
-                    },
-                },
-            ];
+        Return ONLY a raw JSON object with these keys: "bank_name", "account_number", "account_type". Do not include markdown formatting (like \`\`\`json).
+    `;
 
-            // Fetch categories from DB for the prompt
-            const categories = await new Promise((resolve) => {
-                db.all("SELECT name FROM categories", (err, rows) => {
-                    if (err || !rows) resolve(["Food", "Shopping", "Transport", "Utilities", "Housing", "Entertainment", "Health", "Travel", "Income", "Other"]);
-                    else resolve(rows.map(r => r.name));
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(jsonStr);
+};
+
+// Core function to process document scan and transactions import
+const processDocumentScan = async (documentId) => {
+    return new Promise((resolve, reject) => {
+        db.get("SELECT * FROM documents WHERE id = ?", [documentId], async (err, doc) => {
+            if (err) return reject(err);
+            if (!doc) return reject(new Error("Document not found"));
+
+            const filePath = doc.storage_path;
+            const mimeType = doc.mime_type;
+            const filename = doc.filename;
+
+            try {
+                // Update status to 'scanning'
+                await new Promise((resU, rejU) => {
+                    db.run("UPDATE documents SET status = 'scanning', error_message = NULL WHERE id = ?", [documentId], (errU) => {
+                        if (errU) rejU(errU);
+                        else resU();
+                    });
+                });
+
+                // Clear any existing transactions for this document (idempotency)
+                await new Promise((resD, rejD) => {
+                    db.run("DELETE FROM transactions WHERE document_id = ?", [documentId], (errD) => {
+                        if (errD) rejD(errD);
+                        else resD();
+                    });
+                });
+
+                let transactions = [];
+                let bank_name = '';
+                let account_number = '';
+                let account_type = 'Checking';
+
+                // Fetch categories from DB for classification
+                const categories = await new Promise((resolveCats) => {
+                    db.all("SELECT name FROM categories", (errC, rows) => {
+                        if (errC || !rows) resolveCats(["Food", "Shopping", "Transport", "Utilities", "Housing", "Entertainment", "Health", "Travel", "Income", "Other"]);
+                        else resolveCats(rows.map(r => r.name));
+                    });
+                });
+                const categoryListStr = categories.join(', ');
+
+                if (mimeType === 'application/pdf') {
+                    const genAI = getGenAI();
+                    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
+                    const fileData = fs.readFileSync(filePath);
+                    const imageParts = [
+                        {
+                            inlineData: {
+                                data: fileData.toString("base64"),
+                                mimeType: mimeType,
+                            },
+                        },
+                    ];
+
+                    const prompt = `
+                        Extract all financial transactions and account metadata from this bank statement PDF.
+                        Return ONLY a raw JSON object. Do not include markdown formatting (like \`\`\`json).
+                        The object must have the following keys:
+                        - "bank_name": name of the bank/brand (e.g. Chase, Visa, Mastercard, Leumi)
+                        - "account_number": ending digits of the card or account number. Return ONLY the digits. If none found, return "".
+                        - "account_type": type of account (choose one of: "Checking", "Savings", "Credit Card", "Investment", "Cash", "Other")
+                        - "transactions": a JSON array where each object has:
+                          - "date" (YYYY-MM-DD format)
+                          - "amount" (number, positive)
+                          - "type" (determine if it is: "Income", "Expense", "Transfer", "Reimbursable", "Investment")
+                          - "category" (infer from description, choosing from: ${categoryListStr})
+                          - "description" (full description)
+                    `;
+
+                    const result = await model.generateContent([prompt, ...imageParts]);
+                    const response = await result.response;
+                    const text = response.text();
+
+                    const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const parsed = JSON.parse(jsonStr);
+
+                    bank_name = parsed.bank_name || 'Unknown Bank';
+                    account_number = parsed.account_number ? String(parsed.account_number).trim() : '';
+                    account_type = parsed.account_type || 'Checking';
+                    transactions = parsed.transactions || [];
+
+                } else if (mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
+                    // Extract CSV metadata using Gemini first
+                    try {
+                        const meta = await extractCsvMetadata(filePath, filename);
+                        bank_name = meta.bank_name || 'Unknown Bank';
+                        account_number = meta.account_number ? String(meta.account_number).trim() : '';
+                        account_type = meta.account_type || 'Checking';
+                    } catch (metaErr) {
+                        console.error("Gemini failed to extract CSV metadata, using defaults:", metaErr);
+                        bank_name = 'CSV Import';
+                        account_number = 'CSV';
+                        account_type = 'Checking';
+                    }
+
+                    // Parse CSV transactions
+                    transactions = await new Promise((resolveCsv, rejectCsv) => {
+                        const results = [];
+                        fs.createReadStream(filePath)
+                            .pipe(csv())
+                            .on('data', (data) => {
+                                const date = data.Date || data.date;
+                                const originalAmount = parseFloat(data.Amount || data.amount);
+                                const desc = data.Description || data.description || data.Category || data.category || '';
+                                const categoryHeader = data.Category || data.category || '';
+
+                                if (date && !isNaN(originalAmount)) {
+                                    let inferredType = originalAmount > 0 ? 'Income' : 'Expense';
+                                    const descLower = desc.toLowerCase();
+                                    
+                                    if (descLower.includes('transfer') || descLower.includes('savings') || descLower.includes('cc payment') || descLower.includes('credit card payment') || descLower.includes('wire')) {
+                                        inferredType = 'Transfer';
+                                    } else if (descLower.includes('reimburse') || descLower.includes('expensify') || descLower.includes('corporate refund')) {
+                                        inferredType = 'Reimbursable';
+                                    } else if (descLower.includes('schwab') || descLower.includes('fidelity') || descLower.includes('vanguard') || descLower.includes('investment') || descLower.includes('buy stock')) {
+                                        inferredType = 'Investment';
+                                    }
+
+                                    let inferredCategory = categoryHeader || 'Other';
+                                    if (inferredType === 'Transfer') {
+                                        inferredCategory = 'Bank Transfer';
+                                    } else if (inferredType === 'Investment') {
+                                        inferredCategory = 'Stocks/Mutual Funds';
+                                    } else if (inferredType === 'Reimbursable') {
+                                        inferredCategory = 'Business Reimbursement';
+                                    } else if (inferredType === 'Income' && (!categoryHeader || categoryHeader.toLowerCase().includes('uncategorized'))) {
+                                        inferredCategory = 'Salary';
+                                    }
+
+                                    results.push({
+                                        date: new Date(date).toISOString().split('T')[0],
+                                        amount: Math.abs(originalAmount),
+                                        type: inferredType,
+                                        category: inferredCategory,
+                                        description: desc || inferredCategory
+                                    });
+                                }
+                            })
+                            .on('end', () => resolveCsv(results))
+                            .on('error', (errC) => rejectCsv(errC));
+                    });
+                } else {
+                    throw new Error("Unsupported file type: " + mimeType);
+                }
+
+                // Resolve or create Bank Account
+                let bankAccountId = null;
+                const searchNum = account_number || 'NONE_AVAILABLE';
+                
+                const existingAcc = await new Promise((resolveAcc) => {
+                    db.get(
+                        "SELECT * FROM bank_accounts WHERE (account_number = ? AND account_number IS NOT NULL AND account_number != '') OR (name = ? AND (account_number IS NULL OR account_number = ''))",
+                        [searchNum, bank_name],
+                        (errA, row) => {
+                            if (errA) resolveAcc(null);
+                            else resolveAcc(row);
+                        }
+                    );
+                });
+
+                if (existingAcc) {
+                    bankAccountId = existingAcc.id;
+                } else {
+                    // Create new bank account
+                    const accName = account_number ? `${bank_name} ending in ${account_number}` : bank_name;
+                    const accLabel = account_number ? `${bank_name} ${account_number}` : bank_name;
+                    const type = account_type || 'Checking';
+                    
+                    bankAccountId = await new Promise((resolveNew, rejectNew) => {
+                        db.run(
+                            "INSERT INTO bank_accounts (name, type, account_number, label) VALUES (?, ?, ?, ?)",
+                            [accName, type, account_number || null, accLabel],
+                            function(errN) {
+                                if (errN) rejectNew(errN);
+                                else resolveNew(this.lastID);
+                            }
+                        );
+                    });
+                }
+
+                // Insert transactions
+                let addedCount = 0;
+                const dates = [];
+                for (const t of transactions) {
+                    t.bank_account_id = bankAccountId;
+                    t.document_id = documentId;
+                    dates.push(t.date);
+
+                    const isDup = await isDuplicate(t);
+                    if (!isDup) {
+                        await insertTransaction(t);
+                        addedCount++;
+                    }
+                }
+
+                // Calculate date range
+                let dateRangeStart = null;
+                let dateRangeEnd = null;
+                if (dates.length > 0) {
+                    dates.sort();
+                    dateRangeStart = dates[0];
+                    dateRangeEnd = dates[dates.length - 1];
+                }
+
+                const lastScannedAt = new Date().toISOString();
+
+                // Update document record in DB
+                await new Promise((resDocUp, rejDocUp) => {
+                    const updateQuery = `
+                        UPDATE documents 
+                        SET status = 'scanned', 
+                            bank_account_id = ?, 
+                            date_range_start = ?, 
+                            date_range_end = ?, 
+                            last_scanned_at = ?, 
+                            transaction_count = ?,
+                            error_message = NULL
+                        WHERE id = ?
+                    `;
+                    db.run(updateQuery, [bankAccountId, dateRangeStart, dateRangeEnd, lastScannedAt, addedCount, documentId], (errU) => {
+                        if (errU) rejDocUp(errU);
+                        else resDocUp();
+                    });
+                });
+
+                resolve({
+                    added: addedCount,
+                    totalFound: transactions.length,
+                    dateRangeStart,
+                    dateRangeEnd
+                });
+
+            } catch (scanError) {
+                console.error("Scan error for document ID", documentId, ":", scanError);
+                const errMsg = scanError.message || String(scanError);
+                await new Promise((resErr) => {
+                    db.run("UPDATE documents SET status = 'failed', error_message = ? WHERE id = ?", [errMsg, documentId], () => {
+                        resErr();
+                    });
+                });
+                reject(scanError);
+            }
+        });
+    });
+};
+
+// POST /api/upload (handles bulk/single files, runs instantly without scanning)
+router.post('/upload', upload.array('file'), async (req, res) => {
+    const files = req.files || (req.file ? [req.file] : []);
+    if (files.length === 0) {
+        return res.status(400).json({ error: "No files uploaded" });
+    }
+
+    const uploaded = [];
+    const skipped = [];
+
+    for (const file of files) {
+        const filename = file.originalname;
+        const storagePath = file.path;
+        const mimeType = file.mimetype;
+        const size = file.size;
+        const uploadDate = new Date().toISOString();
+
+        try {
+            // Check for duplicate document
+            const duplicateDoc = await new Promise((resolve, reject) => {
+                db.get("SELECT id FROM documents WHERE filename = ? AND size = ?", [filename, size], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
                 });
             });
-            const categoryListStr = categories.join(', ');
 
-            const prompt = `
-                Extract all financial transactions from this bank statement.
-                Return ONLY a raw JSON array. Do not include markdown formatting (like \`\`\`json).
-                Each object in the array should have:
-                - "date" (YYYY-MM-DD format)
-                - "amount" (number, positive)
-                - "type" (determine if it is: "Income", "Expense", "Transfer", "Reimbursable", "Investment")
-                - "category" (infer from description, choosing from: ${categoryListStr})
-                - "description" (full description)
-            `;
+            if (duplicateDoc) {
+                fs.unlinkSync(storagePath); // Clean up temp file
+                skipped.push({ filename, reason: "File already uploaded" });
+                continue;
+            }
 
-            const result = await model.generateContent([prompt, ...imageParts]);
-            const response = await result.response;
-            const text = response.text();
-
-            // Clean markdown if present
-            const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-            transactions = JSON.parse(jsonStr);
-
-        } else if (mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
-            // Process CSV
-            transactions = await new Promise((resolve, reject) => {
-                const results = [];
-                fs.createReadStream(filePath)
-                    .pipe(csv())
-                    .on('data', (data) => {
-                        const date = data.Date || data.date;
-                        const originalAmount = parseFloat(data.Amount || data.amount);
-                        const desc = data.Description || data.description || data.Category || data.category || '';
-                        const categoryHeader = data.Category || data.category || '';
-
-                        if (date && !isNaN(originalAmount)) {
-                            // Infer Type based on amount sign and description keywords
-                            let inferredType = originalAmount > 0 ? 'Income' : 'Expense';
-                            const descLower = desc.toLowerCase();
-                            
-                            if (descLower.includes('transfer') || descLower.includes('savings') || descLower.includes('cc payment') || descLower.includes('credit card payment') || descLower.includes('wire')) {
-                                inferredType = 'Transfer';
-                            } else if (descLower.includes('reimburse') || descLower.includes('expensify') || descLower.includes('corporate refund')) {
-                                inferredType = 'Reimbursable';
-                            } else if (descLower.includes('schwab') || descLower.includes('fidelity') || descLower.includes('vanguard') || descLower.includes('investment') || descLower.includes('buy stock')) {
-                                inferredType = 'Investment';
-                            }
-
-                            // Determine a default category for the type if not matched
-                            let inferredCategory = categoryHeader || 'Other';
-                            if (inferredType === 'Transfer') {
-                                inferredCategory = 'Bank Transfer';
-                            } else if (inferredType === 'Investment') {
-                                inferredCategory = 'Stocks/Mutual Funds';
-                            } else if (inferredType === 'Reimbursable') {
-                                inferredCategory = 'Business Reimbursement';
-                            } else if (inferredType === 'Income' && (!categoryHeader || categoryHeader.toLowerCase().includes('uncategorized'))) {
-                                inferredCategory = 'Salary';
-                            }
-
-                            results.push({
-                                date: new Date(date).toISOString().split('T')[0],
-                                amount: Math.abs(originalAmount),
-                                type: inferredType,
-                                category: inferredCategory,
-                                description: desc || inferredCategory
-                            });
-                        }
-                    })
-                    .on('end', () => resolve(results))
-                    .on('error', (err) => reject(err));
+            // Save document record in DB
+            const docId = await new Promise((resolve, reject) => {
+                const query = `
+                    INSERT INTO documents (filename, storage_path, mime_type, size, upload_date, status)
+                    VALUES (?, ?, ?, ?, ?, 'uploaded')
+                `;
+                db.run(query, [filename, storagePath, mimeType, size, uploadDate], function(err) {
+                    if (err) reject(err);
+                    else resolve(this.lastID);
+                });
             });
-        } else {
-            fs.unlinkSync(filePath); // Cleanup
-            return res.status(400).json({ error: "Unsupported file type" });
-        }
 
-        // Insert unique transactions
-        let addedCount = 0;
-        for (const t of transactions) {
-            if (bankAccountId) {
-                t.bank_account_id = bankAccountId;
+            uploaded.push({ id: docId, filename, status: 'uploaded' });
+
+        } catch (err) {
+            if (fs.existsSync(storagePath)) {
+                try { fs.unlinkSync(storagePath); } catch (e) {}
             }
-            console.log("Processing transaction:", t);
-            const isDup = await isDuplicate(t);
-            if (!isDup) {
-                await insertTransaction(t);
-                addedCount++;
-            } else {
-                console.log("Skipping duplicate:", t);
-            }
+            skipped.push({ filename, reason: err.message });
         }
+    }
 
-        fs.unlinkSync(filePath); // Cleanup uploaded file
-        res.json({ message: "File processed successfully", added: addedCount, totalFound: transactions.length });
+    res.json({
+        message: `Processed ${files.length} upload(s).`,
+        uploaded,
+        skipped
+    });
+});
 
+// GET /api/documents
+router.get('/documents', (req, res) => {
+    const query = `
+        SELECT d.*, b.name as bank_account_name, b.label as bank_account_label, b.account_number as bank_account_number
+        FROM documents d
+        LEFT JOIN bank_accounts b ON d.bank_account_id = b.id
+        ORDER BY d.upload_date DESC
+    `;
+    db.all(query, [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+// POST /api/documents/:id/scan
+router.post('/documents/:id/scan', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const scanResult = await processDocumentScan(parseInt(id));
+        res.json({
+            message: "Document scanned successfully",
+            ...scanResult
+        });
     } catch (error) {
-        console.error("Processing error:", error);
-        if (fs.existsSync(filePath)) {
-            try { fs.unlinkSync(filePath); } catch (e) { console.error("Cleanup error (ignored):", e.message); }
-        }
-        res.status(500).json({ error: "Failed to process file: " + error.message });
+        res.status(500).json({ error: "Failed to scan document: " + error.message });
     }
 });
+
+// DELETE /api/documents/:id
+router.delete('/documents/:id', (req, res) => {
+    const { id } = req.params;
+    
+    // Get file path to delete physical file
+    db.get("SELECT storage_path FROM documents WHERE id = ?", [id], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Document not found" });
+        }
+        
+        const storagePath = row.storage_path;
+        
+        // Delete transactions, then document record
+        db.serialize(() => {
+            db.run("DELETE FROM transactions WHERE document_id = ?", [id], (errTx) => {
+                if (errTx) console.error("Error deleting transactions for document ID:", id, errTx);
+            });
+            
+            db.run("DELETE FROM documents WHERE id = ?", [id], function(errDoc) {
+                if (errDoc) {
+                    return res.status(500).json({ error: errDoc.message });
+                }
+                
+                // Delete physical file
+                if (fs.existsSync(storagePath)) {
+                    try {
+                        fs.unlinkSync(storagePath);
+                    } catch (fileErr) {
+                        console.error("Error deleting document file from disk:", fileErr);
+                    }
+                }
+                
+                res.json({ message: "Document and its transactions deleted successfully." });
+            });
+        });
+    });
+});
+
 
 // POST /api/rules/run - Apply rules to all transactions
 router.post('/rules/run', (req, res) => {
@@ -376,26 +656,26 @@ router.get('/bank-accounts', (req, res) => {
 
 // POST /api/bank-accounts
 router.post('/bank-accounts', (req, res) => {
-    const { name, type } = req.body;
+    const { name, type, account_number, label } = req.body;
     if (!name || !type) {
         return res.status(400).json({ error: "Name and type are required" });
     }
-    const query = `INSERT INTO bank_accounts (name, type) VALUES (?, ?)`;
-    db.run(query, [name, type], function (err) {
+    const query = `INSERT INTO bank_accounts (name, type, account_number, label) VALUES (?, ?, ?, ?)`;
+    db.run(query, [name, type, account_number || null, label || name], function (err) {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
         }
-        res.json({ id: this.lastID, name, type });
+        res.json({ id: this.lastID, name, type, account_number, label: label || name });
     });
 });
 
 // PUT /api/bank-accounts/:id
 router.put('/bank-accounts/:id', (req, res) => {
-    const { name, type } = req.body;
+    const { name, type, account_number, label } = req.body;
     const { id } = req.params;
-    const query = `UPDATE bank_accounts SET name = ?, type = ? WHERE id = ?`;
-    db.run(query, [name, type, id], function (err) {
+    const query = `UPDATE bank_accounts SET name = ?, type = ?, account_number = ?, label = ? WHERE id = ?`;
+    db.run(query, [name, type, account_number || null, label || name, id], function (err) {
         if (err) {
             res.status(500).json({ error: err.message });
             return;

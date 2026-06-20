@@ -1,58 +1,36 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { uploadFile } from '../api/client';
-import axios from 'axios';
+import { uploadFiles } from '../api/client';
 
 export const FileUploader = ({ onUploadSuccess }) => {
     const [status, setStatus] = useState(''); // 'uploading', 'success', 'error'
     const [message, setMessage] = useState('');
-    const [accounts, setAccounts] = useState([]);
-    const [showAccountModal, setShowAccountModal] = useState(false);
-    const [selectedAccountId, setSelectedAccountId] = useState('');
-    const [pendingFile, setPendingFile] = useState(null);
 
-    useEffect(() => {
-        fetchAccounts();
-    }, []);
-
-    const fetchAccounts = async () => {
-        try {
-            const res = await axios.get('http://localhost:3000/api/bank-accounts');
-            setAccounts(res.data);
-        } catch (err) {
-            console.error("Failed to fetch accounts", err);
-        }
-    };
-
-    const onDrop = useCallback((acceptedFiles) => {
+    const onDrop = useCallback(async (acceptedFiles) => {
         if (acceptedFiles.length === 0) return;
-        const file = acceptedFiles[0];
-        setPendingFile(file);
-        setSelectedAccountId(''); // Reset selection
-        setShowAccountModal(true);
-    }, []);
 
-    const handleUpload = async () => {
-        if (!pendingFile) return;
-
-        setShowAccountModal(false);
         setStatus('uploading');
-        setMessage(`Uploading ${pendingFile.name}...`);
+        setMessage(`Uploading ${acceptedFiles.length} file(s)...`);
 
         try {
-            const response = await uploadFile(pendingFile, selectedAccountId);
+            const response = await uploadFiles(acceptedFiles);
+            const { uploaded, skipped } = response.data;
+
             setStatus('success');
-            const { added, totalFound } = response.data;
-            setMessage(`Success! Added ${added} new transactions (skipped ${totalFound - added} duplicates).`);
+            
+            let resultMessage = `Successfully uploaded ${uploaded.length} file(s) to repository.`;
+            if (skipped.length > 0) {
+                resultMessage += ` ${skipped.length} duplicate file(s) skipped.`;
+            }
+            setMessage(resultMessage);
+
             if (onUploadSuccess) onUploadSuccess();
         } catch (error) {
             console.error(error);
             setStatus('error');
             setMessage(error.response?.data?.error || 'Upload failed. Please try again.');
-        } finally {
-            setPendingFile(null);
         }
-    };
+    }, [onUploadSuccess]);
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop,
@@ -60,8 +38,8 @@ export const FileUploader = ({ onUploadSuccess }) => {
             'application/pdf': ['.pdf'],
             'text/csv': ['.csv'],
             'application/vnd.ms-excel': ['.csv']
-        },
-        maxFiles: 1
+        }
+        // maxFiles is omitted to support bulk upload
     });
 
     return (
@@ -71,8 +49,8 @@ export const FileUploader = ({ onUploadSuccess }) => {
                 className={`dropzone ${isDragActive ? 'active' : ''} ${status}`}
                 style={{
                     border: '2px dashed #444',
-                    borderRadius: '8px',
-                    padding: '20px',
+                    borderRadius: '12px',
+                    padding: '24px',
                     textAlign: 'center',
                     cursor: 'pointer',
                     backgroundColor: isDragActive ? '#333' : '#1e1e1e',
@@ -82,10 +60,10 @@ export const FileUploader = ({ onUploadSuccess }) => {
             >
                 <input {...getInputProps()} />
                 {status === 'uploading' ? (
-                    <p>Processing... This involves AI analysis and may take a moment.</p>
+                    <p style={{ color: '#03DAC6' }}>Uploading files directly to the server repository...</p>
                 ) : (
                     <p>
-                        {isDragActive ? "Drop the file here..." : "Drag & drop PDF statement or CSV here, or click to select"}
+                        {isDragActive ? "Drop the files here..." : "Drag & drop PDF statements or CSVs here, or click to select"}
                     </p>
                 )}
             </div>
@@ -95,58 +73,11 @@ export const FileUploader = ({ onUploadSuccess }) => {
                     style={{
                         marginTop: '0.5rem',
                         fontSize: '0.9rem',
-                        color: status === 'error' ? '#FF6384' : status === 'success' ? '#4BC0C0' : '#b0b0b0'
+                        color: status === 'error' ? '#FF6384' : status === 'success' ? '#03DAC6' : '#b0b0b0',
+                        fontWeight: '500'
                     }}
                 >
                     {message}
-                </div>
-            )}
-
-            {showAccountModal && (
-                <div className="modal-overlay" style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
-                }}>
-                    <div className="modal-content card" style={{
-                        width: '400px', padding: '20px', backgroundColor: '#1e1e1e', borderRadius: '8px', textAlign: 'center'
-                    }}>
-                        <h3>Select Bank Account</h3>
-                        <p style={{ marginBottom: '1rem', color: '#ccc' }}>
-                            Which account does this statement belong to?
-                        </p>
-
-                        <select
-                            value={selectedAccountId}
-                            onChange={(e) => setSelectedAccountId(e.target.value)}
-                            style={{ width: '100%', padding: '10px', marginBottom: '20px', borderRadius: '4px' }}
-                        >
-                            <option value="">-- Select Account --</option>
-                            {accounts.map(acc => (
-                                <option key={acc.id} value={acc.id}>{acc.name} ({acc.type})</option>
-                            ))}
-                        </select>
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                            <button
-                                onClick={() => { setShowAccountModal(false); setPendingFile(null); }}
-                                style={{
-                                    backgroundColor: '#CF6679', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer'
-                                }}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleUpload}
-                                disabled={!selectedAccountId}
-                                style={{
-                                    backgroundColor: '#03DAC6', color: 'black', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer',
-                                    opacity: !selectedAccountId ? 0.6 : 1
-                                }}
-                            >
-                                Upload
-                            </button>
-                        </div>
-                    </div>
                 </div>
             )}
         </div>

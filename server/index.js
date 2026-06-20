@@ -28,7 +28,11 @@ app.use((req, res) => {
     if (req.method === 'GET' && req.accepts('html')) {
         const indexPath = path.join(__dirname, '../dist/index.html');
         if (fs.existsSync(indexPath)) {
-            res.sendFile(indexPath);
+            res.sendFile(indexPath, (err) => {
+                if (err && !res.headersSent) {
+                    res.status(404).send('Not Found');
+                }
+            });
             return;
         }
     }

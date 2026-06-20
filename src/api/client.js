@@ -13,16 +13,26 @@ export const deleteTransaction = (id) => client.delete(`/transactions/${id}`);
 export const updateTransaction = (id, data) => client.put(`/transactions/${id}`, data);
 export const createRule = (data) => client.post('/rules', data);
 export const getBankAccounts = () => client.get('/bank-accounts');
-export const uploadFile = (file, bankAccountId) => {
+export const uploadFiles = (files) => {
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('bank_account_id', bankAccountId);
+    // Multer upload.array('file') expects files under the 'file' key
+    if (Array.isArray(files)) {
+        files.forEach(file => {
+            formData.append('file', file);
+        });
+    } else {
+        formData.append('file', files);
+    }
     return client.post('/upload', formData, {
         headers: {
             'Content-Type': 'multipart/form-data',
         },
     });
 };
+
+export const getDocuments = () => client.get('/documents');
+export const scanDocument = (id) => client.post(`/documents/${id}/scan`);
+export const deleteDocument = (id) => client.delete(`/documents/${id}`);
 
 export const runRules = () => client.post('/rules/run');
 
