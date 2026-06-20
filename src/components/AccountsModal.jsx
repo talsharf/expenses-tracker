@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const AccountsModal = ({ isOpen, onClose }) => {
+const AccountsModal = ({ isOpen, onClose, onAccountsChanged }) => {
     const [accounts, setAccounts] = useState([]);
     const [newAccount, setNewAccount] = useState({ name: '', type: '', account_number: '', label: '' });
     const [editingId, setEditingId] = useState(null);
@@ -63,6 +63,7 @@ const AccountsModal = ({ isOpen, onClose }) => {
             await axios.post('http://localhost:3000/api/bank-accounts', payload);
             setNewAccount({ name: '', type: '', account_number: '', label: '' });
             fetchAccounts();
+            if (onAccountsChanged) onAccountsChanged();
         } catch (err) {
             setError('Failed to add bank account.');
             console.error(err);
@@ -76,6 +77,7 @@ const AccountsModal = ({ isOpen, onClose }) => {
         try {
             await axios.delete(`http://localhost:3000/api/bank-accounts/${id}`);
             fetchAccounts();
+            if (onAccountsChanged) onAccountsChanged();
         } catch (err) {
             setError('Failed to delete account. Transactions may be using it.');
             console.error(err);
@@ -105,6 +107,7 @@ const AccountsModal = ({ isOpen, onClose }) => {
             setEditingId(null);
             setEditingField(null);
             fetchAccounts();
+            if (onAccountsChanged) onAccountsChanged();
         } catch (err) {
             setError('Failed to update account details.');
             console.error(err);

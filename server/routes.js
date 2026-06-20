@@ -615,17 +615,37 @@ router.post('/upload', upload.array('file'), async (req, res) => {
 
 // GET /api/documents
 router.get('/documents', (req, res) => {
-    const query = `
-        SELECT d.*, b.name as bank_account_name, b.label as bank_account_label, b.account_number as bank_account_number
-        FROM documents d
-        LEFT JOIN bank_accounts b ON d.bank_account_id = b.id
-        ORDER BY d.upload_date DESC
+    // Clean up orphaned document states where the mapped bank account no longer exists
+    const cleanupQuery = `
+        UPDATE documents 
+        SET bank_account_id = NULL, 
+            status = 'uploaded', 
+            transaction_count = 0, 
+            date_range_start = NULL, 
+            date_range_end = NULL, 
+            last_scanned_at = NULL 
+        WHERE status = 'scanned' 
+          AND bank_account_id IS NOT NULL 
+          AND bank_account_id NOT IN (SELECT id FROM bank_accounts)
     `;
-    db.all(query, [], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
+
+    db.run(cleanupQuery, [], (cleanupErr) => {
+        if (cleanupErr) {
+            console.error("Failed to run document cleanup:", cleanupErr);
         }
-        res.json(rows);
+
+        const query = `
+            SELECT d.*, b.name as bank_account_name, b.label as bank_account_label, b.account_number as bank_account_number
+            FROM documents d
+            LEFT JOIN bank_accounts b ON d.bank_account_id = b.id
+            ORDER BY d.upload_date DESC
+        `;
+        db.all(query, [], (err, rows) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json(rows);
+        });
     });
 });
 

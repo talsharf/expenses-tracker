@@ -323,7 +323,7 @@ export const Dashboard = () => {
                 onRulesApplied={fetchData}
                 categories={categories}
             />
-            <AccountsModal isOpen={isAccountsModalOpen} onClose={() => setIsAccountsModalOpen(false)} />
+            <AccountsModal isOpen={isAccountsModalOpen} onClose={() => setIsAccountsModalOpen(false)} onAccountsChanged={fetchData} />
             <CategoriesModal isOpen={isCategoriesModalOpen} onClose={() => setIsCategoriesModalOpen(false)} />
             <DocumentsModal 
                 isOpen={isDocumentsModalOpen} 
