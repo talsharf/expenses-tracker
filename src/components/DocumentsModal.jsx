@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getDocuments, scanDocument, deleteDocument } from '../api/client';
-import { FileUploader } from './FileUploader';
+import { getDocuments, scanDocument, deleteDocument, uploadFiles } from '../api/client';
+import { useDropzone } from 'react-dropzone';
 
 const DocumentsModal = ({ isOpen, onClose, onTransactionsUpdated }) => {
     const [documents, setDocuments] = useState([]);
@@ -8,8 +8,63 @@ const DocumentsModal = ({ isOpen, onClose, onTransactionsUpdated }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     
+    // Upload status messages
+    const [successMsg, setSuccessMsg] = useState(null);
+    const [warnMsg, setWarnMsg] = useState(null);
+    const [successTimeoutId, setSuccessTimeoutId] = useState(null);
+
     // Status tracking for individual document actions
     const [activeActions, setActiveActions] = useState({}); // { [docId]: 'scanning' | 'deleting' }
+
+    // Dropzone logic
+    const onDrop = async (acceptedFiles) => {
+        if (acceptedFiles.length === 0) return;
+
+        // Clear previous messages
+        setSuccessMsg(null);
+        setWarnMsg(null);
+        if (successTimeoutId) {
+            clearTimeout(successTimeoutId);
+        }
+
+        try {
+            const response = await uploadFiles(acceptedFiles);
+            const { uploaded, skipped } = response.data;
+
+            if (uploaded && uploaded.length > 0) {
+                const sMsg = `Successfully uploaded ${uploaded.length} document(s).`;
+                setSuccessMsg(sMsg);
+                
+                // Clear success message after 3 seconds
+                const tId = setTimeout(() => {
+                    setSuccessMsg(null);
+                }, 3000);
+                setSuccessTimeoutId(tId);
+            }
+
+            if (skipped && skipped.length > 0) {
+                const skippedFiles = skipped.map(item => `"${item.filename}" (${item.reason})`).join(', ');
+                const wMsg = `Skipped ${skipped.length} document(s) because they already exist: ${skippedFiles}`;
+                setWarnMsg(wMsg);
+            }
+
+            // Refresh repository list
+            await fetchDocuments();
+        } catch (err) {
+            console.error(err);
+            setWarnMsg(err.response?.data?.error || 'Upload failed. Please try again.');
+        }
+    };
+
+    const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+        onDrop,
+        accept: {
+            'application/pdf': ['.pdf'],
+            'text/csv': ['.csv'],
+            'application/vnd.ms-excel': ['.csv']
+        },
+        noClick: true // Don't trigger file dialog when clicking inside the modal content
+    });
 
     useEffect(() => {
         if (isOpen) {
@@ -216,16 +271,32 @@ const DocumentsModal = ({ isOpen, onClose, onTransactionsUpdated }) => {
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             backgroundColor: 'rgba(0,0,0,0.65)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
         }}>
-            <div className="modal-content card" style={{
+            <div {...getRootProps()} className="modal-content card" style={{
                 width: '1000px', maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto', position: 'relative',
                 padding: '24px', backgroundColor: '#1e1e1e', borderRadius: '16px', border: '1px solid #333'
             }}>
+                <input {...getInputProps()} />
+                
+                {isDragActive && (
+                    <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(3, 218, 198, 0.12)', backdropFilter: 'blur(3px)',
+                        border: '2px dashed #03dac6', borderRadius: '16px', zIndex: 1100,
+                        display: 'flex', justifyContent: 'center', alignItems: 'center',
+                        color: '#03dac6', fontWeight: 'bold', fontSize: '1.25rem',
+                        pointerEvents: 'none'
+                    }}>
+                        Drop statements here to upload!
+                    </div>
+                )}
+
                 {/* Close Button */}
                 <button 
                     onClick={onClose} 
                     style={{ 
                         position: 'absolute', top: '15px', right: '15px', background: 'none', border: 'none', 
-                        fontSize: '1.8rem', cursor: 'pointer', color: '#b0b0b0', transition: 'color 0.2s' 
+                        fontSize: '1.8rem', cursor: 'pointer', color: '#b0b0b0', transition: 'color 0.2s',
+                        zIndex: 1200 // Ensure close button is above drag overlays
                     }}
                     onMouseEnter={(e) => e.target.style.color = '#ffffff'}
                     onMouseLeave={(e) => e.target.style.color = '#b0b0b0'}
@@ -234,13 +305,77 @@ const DocumentsModal = ({ isOpen, onClose, onTransactionsUpdated }) => {
                 </button>
 
                 <h2 style={{ color: 'white', marginBottom: '8px', fontSize: '1.4rem' }}>Document Repository</h2>
-                <p style={{ color: '#888', marginBottom: '20px', fontSize: '0.9rem' }}>
+                <p style={{ color: '#888', marginBottom: '16px', fontSize: '0.9rem' }}>
                     Manage uploaded Visa PDFs or regular CSV bank statements. Select documents to scan or delete in bulk.
                 </p>
 
-                <div style={{ marginBottom: '20px' }}>
-                    <FileUploader onUploadSuccess={fetchDocuments} />
+                {/* Smaller, sleek static drag-and-drop indicator */}
+                <div 
+                    onClick={open}
+                    style={{
+                        padding: '12px',
+                        backgroundColor: '#121212',
+                        border: '1px dashed #444',
+                        borderRadius: '8px',
+                        textAlign: 'center',
+                        marginBottom: '20px',
+                        fontSize: '0.85rem',
+                        color: '#b0b0b0',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => { e.target.style.borderColor = '#03dac6'; e.target.style.color = 'white'; }}
+                    onMouseLeave={(e) => { e.target.style.borderColor = '#444'; e.target.style.color = '#b0b0b0'; }}
+                >
+                    Drag & drop files anywhere here, or <span style={{ color: '#03dac6', textDecoration: 'underline' }}>click to select files</span>
                 </div>
+
+                {/* Success Message (Green, Fades after 3 seconds) */}
+                {successMsg && (
+                    <div style={{
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        marginBottom: '16px',
+                        backgroundColor: 'rgba(3, 218, 198, 0.1)',
+                        color: '#03dac6',
+                        border: '1px solid rgba(3, 218, 198, 0.2)',
+                        fontWeight: '500',
+                        animation: 'fadeIn 0.2s ease'
+                    }}>
+                        ✅ {successMsg}
+                    </div>
+                )}
+
+                {/* Warning Message (Yellow/Red, Does not fade, close button) */}
+                {warnMsg && (
+                    <div style={{
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        marginBottom: '16px',
+                        backgroundColor: 'rgba(207, 102, 121, 0.1)',
+                        color: '#cf6679',
+                        border: '1px solid rgba(207, 102, 121, 0.2)',
+                        fontWeight: '500',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        animation: 'fadeIn 0.2s ease'
+                    }}>
+                        <span>⚠️ {warnMsg}</span>
+                        <button 
+                            onClick={() => setWarnMsg(null)}
+                            style={{
+                                background: 'none', border: 'none', color: '#cf6679', 
+                                cursor: 'pointer', fontSize: '1.25rem', marginLeft: '10px', padding: '0 4px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold'
+                            }}
+                        >
+                            &times;
+                        </button>
+                    </div>
+                )}
 
                 {error && (
                     <div className="error-message" style={{ 
@@ -253,41 +388,41 @@ const DocumentsModal = ({ isOpen, onClose, onTransactionsUpdated }) => {
                 )}
 
                 {/* Bulk Actions Bar */}
-                <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                    marginBottom: '16px', padding: '12px', backgroundColor: '#121212', borderRadius: '8px',
-                    border: '1px solid #333'
-                }}>
-                    <div style={{ color: '#ccc', fontSize: '0.9rem' }}>
-                        {selectedIds.size} of {documents.length} document(s) selected
+                {selectedIds.size > 0 && (
+                    <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                        marginBottom: '16px', padding: '12px', backgroundColor: '#121212', borderRadius: '8px',
+                        border: '1px solid #333'
+                    }}>
+                        <div style={{ color: '#ccc', fontSize: '0.9rem' }}>
+                            {selectedIds.size} of {documents.length} document(s) selected
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button
+                                onClick={handleBulkScan}
+                                style={{
+                                    backgroundColor: '#03dac6', color: 'black', border: 'none', 
+                                    padding: '8px 16px', borderRadius: '6px', cursor: 'pointer',
+                                    fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
+                                    transition: 'opacity 0.2s'
+                                }}
+                            >
+                                ⚡ Scan Selected
+                            </button>
+                            <button
+                                onClick={handleBulkDelete}
+                                style={{
+                                    backgroundColor: '#cf6679', color: 'white', border: 'none', 
+                                    padding: '8px 16px', borderRadius: '6px', cursor: 'pointer',
+                                    fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
+                                    transition: 'opacity 0.2s'
+                                }}
+                            >
+                                🗑️ Delete Selected
+                            </button>
+                        </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                        <button
-                            onClick={handleBulkScan}
-                            disabled={selectedIds.size === 0}
-                            style={{
-                                backgroundColor: '#03dac6', color: 'black', border: 'none', 
-                                padding: '8px 16px', borderRadius: '6px', cursor: 'pointer',
-                                fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
-                                opacity: selectedIds.size === 0 ? 0.5 : 1, transition: 'opacity 0.2s'
-                            }}
-                        >
-                            ⚡ Scan Selected
-                        </button>
-                        <button
-                            onClick={handleBulkDelete}
-                            disabled={selectedIds.size === 0}
-                            style={{
-                                backgroundColor: '#cf6679', color: 'white', border: 'none', 
-                                padding: '8px 16px', borderRadius: '6px', cursor: 'pointer',
-                                fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
-                                opacity: selectedIds.size === 0 ? 0.5 : 1, transition: 'opacity 0.2s'
-                            }}
-                        >
-                            🗑️ Delete Selected
-                        </button>
-                    </div>
-                </div>
+                )}
 
                 {/* Documents Table */}
                 <div style={{ overflowX: 'auto', border: '1px solid #333', borderRadius: '8px', backgroundColor: '#121212' }}>
@@ -315,7 +450,7 @@ const DocumentsModal = ({ isOpen, onClose, onTransactionsUpdated }) => {
                         <tbody>
                             {documents.map(doc => {
                                 const action = activeActions[doc.id];
-                                const isScanning = action === 'scanning';
+                                const isScanning = action === 'scanning' || doc.status === 'scanning';
                                 const isDeleting = action === 'deleting';
                                 const isRowLoading = isScanning || isDeleting;
                                 
@@ -386,8 +521,8 @@ const DocumentsModal = ({ isOpen, onClose, onTransactionsUpdated }) => {
                                             {isScanning ? (
                                                 <span style={{
                                                     display: 'inline-block', padding: '4px 8px', borderRadius: '4px',
-                                                    fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: 'rgba(3, 218, 198, 0.1)', color: '#03dac6',
-                                                    border: '1px solid rgba(3, 218, 198, 0.2)'
+                                                    fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: 'rgba(255, 159, 64, 0.15)', color: '#FF9F40',
+                                                    border: '1px solid rgba(255, 159, 64, 0.25)'
                                                 }}>
                                                     Scanning...
                                                 </span>

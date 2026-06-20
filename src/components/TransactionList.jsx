@@ -15,7 +15,7 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
     const getAccountName = (id) => {
         if (!id) return '';
         const acc = accounts.find(a => a.id === id);
-        return acc ? acc.name : '';
+        return acc ? (acc.label || acc.name) : '';
     };
 
     const handleDelete = async (id) => {

@@ -159,7 +159,7 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
             backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
         }}>
             <div className="modal-content card" style={{
-                width: '600px', maxHeight: '80vh', overflowY: 'auto', position: 'relative'
+                width: '600px', position: 'relative'
             }}>
                 <button onClick={onClose} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'white' }}>&times;</button>
                 <h2>Manage Rules</h2>
@@ -246,7 +246,7 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
                     </button>
                 </div>
 
-                <div className="rules-list">
+                <div className="rules-list" style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #333', borderRadius: '6px', marginTop: '1rem' }}>
                     <h3>Existing Rules</h3>
                     {loading ? <p>Loading...</p> : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>

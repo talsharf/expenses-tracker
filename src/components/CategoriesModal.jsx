@@ -128,7 +128,7 @@ const CategoriesModal = ({ isOpen, onClose }) => {
             backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
         }}>
             <div className="modal-content card" style={{
-                width: '500px', maxHeight: '85vh', overflowY: 'auto', position: 'relative'
+                width: '500px', position: 'relative'
             }}>
                 <button onClick={onClose} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'white' }}>&times;</button>
                 <h2>Manage Categories</h2>
@@ -177,7 +177,7 @@ const CategoriesModal = ({ isOpen, onClose }) => {
                     </div>
                 </div>
 
-                <div className="categories-list">
+                <div className="categories-list" style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #333', borderRadius: '6px', padding: '12px', backgroundColor: '#121212', marginTop: '1rem' }}>
                     <h3>Existing Categories</h3>
                     {loading ? <p>Loading...</p> : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -185,7 +185,7 @@ const CategoriesModal = ({ isOpen, onClose }) => {
                                 if (list.length === 0) return null;
                                 return (
                                     <div key={type} style={{ border: '1px solid #333', borderRadius: '6px', padding: '10px', backgroundColor: '#1e1e1e' }}>
-                                        <h4 style={{ margin: '0 0 10px 0', borderBottom: '1px solid #444', paddingBottom: '4px', color: '#b0b0b0' }}>
+                                        <h4 style={{ margin: '0 0 10px 0', borderBottom: '1px solid #444', paddingBottom: '4px', color: '#b0b0b0', fontWeight: '800', fontSize: '1.1rem' }}>
                                             {type}s
                                         </h4>
                                         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
@@ -221,7 +221,7 @@ const CategoriesModal = ({ isOpen, onClose }) => {
                                                     ) : (
                                                         <span
                                                             onClick={() => startEdit(category)}
-                                                            style={{ cursor: 'pointer', flex: 1, color: 'white' }}
+                                                            style={{ cursor: 'pointer', flex: 1, color: 'white', fontWeight: '400' }}
                                                             title="Click to edit"
                                                         >
                                                             {category.name}

@@ -163,6 +163,77 @@ const extractCsvMetadata = async (filePath, filename) => {
     return JSON.parse(jsonStr);
 };
 
+// Helper to parse dates in various formats
+const parseCSVDate = (dateStr) => {
+    if (!dateStr) return null;
+    const cleanStr = String(dateStr).trim();
+    
+    // Try standard JS parsing first
+    let d = new Date(cleanStr);
+    if (!isNaN(d.getTime())) {
+        return d.toISOString().split('T')[0];
+    }
+    
+    // Try parsing slash, dash, or dot formats manually
+    const parts = cleanStr.split(/[-/.]/);
+    if (parts.length === 3) {
+        let year = parts[2].trim();
+        let month = parts[1].trim();
+        let day = parts[0].trim();
+        
+        if (year.length === 2) {
+            year = '20' + year;
+        }
+        
+        const p0 = parseInt(parts[0], 10);
+        const p1 = parseInt(parts[1], 10);
+        const p2 = parseInt(parts[2], 10);
+        
+        if (!isNaN(p0) && !isNaN(p1) && !isNaN(p2)) {
+            if (p0 > 1000) {
+                // YYYY-MM-DD or YYYY-DD-MM
+                if (p1 > 12) {
+                    return `${p0}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                } else {
+                    return `${p0}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+                }
+            }
+            
+            // DD/MM/YYYY or MM/DD/YYYY
+            if (p0 > 12) {
+                return `${year}-${String(p1).padStart(2, '0')}-${String(p0).padStart(2, '0')}`;
+            }
+            if (p1 > 12) {
+                return `${year}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+            }
+            
+            // Default to MM/DD/YYYY
+            return `${year}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+        }
+    }
+    return null;
+};
+
+// Helper to normalize keys of an object to lowercase, removing quotes/BOM/spaces
+const normalizeRowKeys = (row) => {
+    const normalized = {};
+    for (const key of Object.keys(row)) {
+        const normalizedKey = key.replace(/^\uFEFF/, '').replace(/['"]/g, '').trim().toLowerCase();
+        normalized[normalizedKey] = row[key];
+    }
+    return normalized;
+};
+
+// Helper to find a value from a normalized object using key aliases
+const findValueByKeys = (row, aliases) => {
+    for (const alias of aliases) {
+        if (row[alias] !== undefined && row[alias] !== null && row[alias] !== '') {
+            return row[alias];
+        }
+    }
+    return null;
+};
+
 // Core function to process document scan and transactions import
 const processDocumentScan = async (documentId) => {
     return new Promise((resolve, reject) => {
@@ -260,19 +331,89 @@ const processDocumentScan = async (documentId) => {
                         account_type = 'Checking';
                     }
 
+                    // Guess separator
+                    let separator = ',';
+                    try {
+                        const content = fs.readFileSync(filePath, 'utf8');
+                        const firstLine = content.split('\n')[0];
+                        const commaCount = (firstLine.match(/,/g) || []).length;
+                        const semicolonCount = (firstLine.match(/;/g) || []).length;
+                        const tabCount = (firstLine.match(/\t/g) || []).length;
+                        if (semicolonCount > commaCount && semicolonCount > tabCount) {
+                            separator = ';';
+                        } else if (tabCount > commaCount && tabCount > semicolonCount) {
+                            separator = '\t';
+                        }
+                    } catch (e) {
+                        console.error("Failed to guess separator:", e);
+                    }
+
                     // Parse CSV transactions
                     transactions = await new Promise((resolveCsv, rejectCsv) => {
                         const results = [];
-                        fs.createReadStream(filePath)
-                            .pipe(csv())
-                            .on('data', (data) => {
-                                const date = data.Date || data.date;
-                                const originalAmount = parseFloat(data.Amount || data.amount);
-                                const desc = data.Description || data.description || data.Category || data.category || '';
-                                const categoryHeader = data.Category || data.category || '';
+                        const DATE_ALIASES = ['transaction date', 'date', 'trans date', 'posting date', 'post date', 'txn date', 'effective date', 'valuta', 'time'];
+                        const DESC_ALIASES = ['description 1', 'description 2', 'description', 'desc', 'memo', 'details', 'payee', 'narrative', 'name', 'transaction'];
+                        const CATEGORY_ALIASES = ['category', 'cat', 'type', 'classification'];
+                        const AMOUNT_ALIASES = ['cad$', 'usd$', 'amount', 'sum', 'value', 'charge', 'payment', 'amount$', 'transaction amount', 'amount cad', 'amount usd'];
+                        const DEBIT_ALIASES = ['debit', 'withdrawal', 'withdrawals', 'expense', 'charge'];
+                        const CREDIT_ALIASES = ['credit', 'deposit', 'deposits', 'income', 'refund'];
 
-                                if (date && !isNaN(originalAmount)) {
-                                    let inferredType = originalAmount > 0 ? 'Income' : 'Expense';
+                        fs.createReadStream(filePath)
+                            .pipe(csv({ separator }))
+                            .on('data', (data) => {
+                                const normalized = normalizeRowKeys(data);
+                                
+                                const rawDate = findValueByKeys(normalized, DATE_ALIASES);
+                                const parsedDate = parseCSVDate(rawDate);
+                                
+                                const desc1 = normalized['description 1'] || '';
+                                const desc2 = normalized['description 2'] || '';
+                                let desc = '';
+                                if (desc1 && desc2) {
+                                    desc = `${desc1} - ${desc2}`;
+                                } else {
+                                    desc = desc1 || desc2 || findValueByKeys(normalized, DESC_ALIASES) || '';
+                                }
+                                desc = desc.trim();
+
+                                const categoryHeader = findValueByKeys(normalized, CATEGORY_ALIASES) || '';
+
+                                let amount = null;
+                                let inferredType = 'Expense';
+
+                                // 1. Try Amount aliases
+                                const rawAmount = findValueByKeys(normalized, AMOUNT_ALIASES);
+                                if (rawAmount !== null && rawAmount !== '') {
+                                    const parsedAmount = parseFloat(String(rawAmount).replace(/[^0-9.-]/g, ''));
+                                    if (!isNaN(parsedAmount)) {
+                                        amount = Math.abs(parsedAmount);
+                                        inferredType = parsedAmount > 0 ? 'Income' : 'Expense';
+                                    }
+                                }
+
+                                // 2. Try Debit and Credit aliases if Amount is not found
+                                if (amount === null) {
+                                    const rawDebit = findValueByKeys(normalized, DEBIT_ALIASES);
+                                    const rawCredit = findValueByKeys(normalized, CREDIT_ALIASES);
+
+                                    if (rawDebit !== null && rawDebit !== '') {
+                                        const parsedDebit = parseFloat(String(rawDebit).replace(/[^0-9.-]/g, ''));
+                                        if (!isNaN(parsedDebit) && parsedDebit !== 0) {
+                                            amount = Math.abs(parsedDebit);
+                                            inferredType = 'Expense';
+                                        }
+                                    }
+
+                                    if (amount === null && rawCredit !== null && rawCredit !== '') {
+                                        const parsedCredit = parseFloat(String(rawCredit).replace(/[^0-9.-]/g, ''));
+                                        if (!isNaN(parsedCredit) && parsedCredit !== 0) {
+                                            amount = Math.abs(parsedCredit);
+                                            inferredType = 'Income';
+                                        }
+                                    }
+                                }
+
+                                if (parsedDate && amount !== null) {
                                     const descLower = desc.toLowerCase();
                                     
                                     if (descLower.includes('transfer') || descLower.includes('savings') || descLower.includes('cc payment') || descLower.includes('credit card payment') || descLower.includes('wire')) {
@@ -295,8 +436,8 @@ const processDocumentScan = async (documentId) => {
                                     }
 
                                     results.push({
-                                        date: new Date(date).toISOString().split('T')[0],
-                                        amount: Math.abs(originalAmount),
+                                        date: parsedDate,
+                                        amount: amount,
                                         type: inferredType,
                                         category: inferredCategory,
                                         description: desc || inferredCategory
@@ -687,12 +828,36 @@ router.put('/bank-accounts/:id', (req, res) => {
 // DELETE /api/bank-accounts/:id
 router.delete('/bank-accounts/:id', (req, res) => {
     const { id } = req.params;
-    db.run("DELETE FROM bank_accounts WHERE id = ?", [id], function (err) {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json({ message: "Bank account deleted", changes: this.changes });
+    
+    db.serialize(() => {
+        // 1. Delete all transactions linked to this bank account
+        db.run("DELETE FROM transactions WHERE bank_account_id = ?", [id], (err1) => {
+            if (err1) {
+                res.status(500).json({ error: err1.message });
+                return;
+            }
+            
+            // 2. Delete the bank account
+            db.run("DELETE FROM bank_accounts WHERE id = ?", [id], function (err2) {
+                if (err2) {
+                    res.status(500).json({ error: err2.message });
+                    return;
+                }
+                
+                // 3. Reset documents that were mapped to this bank account
+                db.run(
+                    "UPDATE documents SET bank_account_id = NULL, status = 'uploaded', transaction_count = 0, date_range_start = NULL, date_range_end = NULL, last_scanned_at = NULL WHERE bank_account_id = ?", 
+                    [id], 
+                    (err3) => {
+                        if (err3) {
+                            res.status(500).json({ error: err3.message });
+                            return;
+                        }
+                        res.json({ message: "Bank account and all associated transactions deleted successfully." });
+                    }
+                );
+            });
+        });
     });
 });
 
