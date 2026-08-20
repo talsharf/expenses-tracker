@@ -160,6 +160,36 @@ export const Dashboard = () => {
         }));
     };
 
+    const defaultDateRange = useMemo(() => {
+        if (transactions.length === 0) {
+            const currentYear = new Date().getFullYear();
+            return { start: `${currentYear}-01-01`, end: `${currentYear}-12-31` };
+        }
+        const dates = transactions.map(t => t.date).filter(Boolean).sort();
+        if (dates.length === 0) {
+            const currentYear = new Date().getFullYear();
+            return { start: `${currentYear}-01-01`, end: `${currentYear}-12-31` };
+        }
+        return {
+            start: dates[0],
+            end: dates[dates.length - 1]
+        };
+    }, [transactions]);
+
+    const handleMonthClick = (year, monthIndex) => {
+        const formattedMonth = String(monthIndex + 1).padStart(2, '0');
+        const startStr = `${year}-${formattedMonth}-01`;
+        const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+        const endStr = `${year}-${formattedMonth}-${String(lastDay).padStart(2, '0')}`;
+
+        setFilters(prev => ({
+            ...prev,
+            startDate: startStr,
+            endDate: endStr,
+            preset: ''
+        }));
+    };
+
     const handleCategoryChange = (category) => {
         setFilters(prev => ({ ...prev, category }));
     };
@@ -352,7 +382,7 @@ export const Dashboard = () => {
                 >
                     <div style={{ fontSize: '0.8rem', color: '#888' }}>Total Income</div>
                     <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#03DAC6', marginTop: '4px' }}>
-                        +${kpis.income.toFixed(2)}
+                        +${kpis.income.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                 </div>
 
@@ -366,7 +396,7 @@ export const Dashboard = () => {
                 >
                     <div style={{ fontSize: '0.8rem', color: '#888' }}>Total Expenses</div>
                     <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#bb86fc', marginTop: '4px' }}>
-                        -${kpis.expense.toFixed(2)}
+                        -${kpis.expense.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                 </div>
 
@@ -380,7 +410,7 @@ export const Dashboard = () => {
                 >
                     <div style={{ fontSize: '0.8rem', color: '#888' }}>Investments</div>
                     <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#36A2EB', marginTop: '4px' }}>
-                        -${kpis.investment.toFixed(2)}
+                        -${kpis.investment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                 </div>
 
@@ -394,7 +424,7 @@ export const Dashboard = () => {
                 >
                     <div style={{ fontSize: '0.8rem', color: '#888' }}>Reimbursable</div>
                     <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#FF9F40', marginTop: '4px' }}>
-                        ${kpis.reimbursable.toFixed(2)}
+                        ${kpis.reimbursable.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                 </div>
 
@@ -408,7 +438,7 @@ export const Dashboard = () => {
                 >
                     <div style={{ fontSize: '0.8rem', color: '#888' }}>Transfers</div>
                     <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#888888', marginTop: '4px' }}>
-                        ${kpis.transfer.toFixed(2)}
+                        ${kpis.transfer.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                 </div>
 
@@ -421,7 +451,7 @@ export const Dashboard = () => {
                 >
                     <div style={{ fontSize: '0.8rem', color: '#888' }}>Net Cash Flow</div>
                     <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: kpis.net >= 0 ? '#03DAC6' : '#CF6679', marginTop: '4px' }}>
-                        {kpis.net >= 0 ? '+' : ''}${kpis.net.toFixed(2)}
+                        {kpis.net >= 0 ? '+' : ''}${kpis.net.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                 </div>
             </div>
@@ -432,10 +462,13 @@ export const Dashboard = () => {
                     <BarChartComponent
                         data={sortedData}
                         dateRange={{
-                            start: filters.startDate || '2024-01-01',
-                            end: filters.endDate || '2025-12-30'
+                            start: filters.startDate || defaultDateRange.start,
+                            end: filters.endDate || defaultDateRange.end
                         }}
                         type={filters.type}
+                        onMonthClick={handleMonthClick}
+                        hasDateFilter={!!(filters.startDate || filters.endDate || filters.preset)}
+                        onResetDateRange={() => setFilters(prev => ({ ...prev, startDate: '', endDate: '', preset: '' }))}
                     />
                 </div>
                 <div className="right-panel">
@@ -444,6 +477,8 @@ export const Dashboard = () => {
                             data={sortedData}
                             onCategoryClick={handleCategoryChange}
                             type={filters.type}
+                            selectedCategory={filters.category}
+                            onResetCategory={() => handleCategoryChange('')}
                         />
                     </div>
                     <div className="card category-list">
@@ -456,7 +491,7 @@ export const Dashboard = () => {
                                     onClick={() => handleCategoryChange(category === filters.category ? '' : category)}
                                 >
                                     <span>{category}</span>
-                                    <span>${amount.toFixed(2)}</span>
+                                    <span>${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 </div>
                             ))}
                         </div>
@@ -536,7 +571,7 @@ export const Dashboard = () => {
                 </div>
 
                 <div className="total-stats">
-                    Filtered Total: ${totalAmount.toFixed(2)}
+                    Filtered Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
             </section>
 

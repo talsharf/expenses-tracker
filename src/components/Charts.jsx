@@ -26,7 +26,7 @@ const MONTHS = [
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
-export const BarChartComponent = ({ data, dateRange, type }) => {
+export const BarChartComponent = ({ data, dateRange, type, onMonthClick, hasDateFilter, onResetDateRange }) => {
     const chartData = useMemo(() => {
         // 1. Generate all months in range logic
         // We need to determine the span of months involved.
@@ -44,14 +44,15 @@ export const BarChartComponent = ({ data, dateRange, type }) => {
             const m = current.getMonth();
             months.push({
                 key: `${y}-${String(m + 1).padStart(2, '0')}`,
-                label: MONTHS[m],
-                year: y
+                label: `${MONTHS[m]}${start.getFullYear() !== end.getFullYear() ? ` '${String(y).slice(2)}` : ''}`,
+                year: y,
+                monthIndex: m
             });
             current.setMonth(current.getMonth() + 1);
         }
 
         // If range is invalid or empty, handle gracefully
-        if (months.length === 0) return { labels: [], datasets: [] };
+        if (months.length === 0) return { labels: [], datasets: [], months: [] };
 
         // Aggregate data
         const totals = {};
@@ -76,6 +77,7 @@ export const BarChartComponent = ({ data, dateRange, type }) => {
 
         return {
             labels: months.map(m => m.label),
+            months,
             datasets: [
                 {
                     label: activeLabel,
@@ -90,6 +92,20 @@ export const BarChartComponent = ({ data, dateRange, type }) => {
     const options = {
         responsive: true,
         maintainAspectRatio: false,
+        onHover: (event, chartElement) => {
+            if (event?.native?.target) {
+                event.native.target.style.cursor = chartElement && chartElement.length > 0 ? 'pointer' : 'default';
+            }
+        },
+        onClick: (event, elements) => {
+            if (elements.length > 0 && onMonthClick && chartData.months) {
+                const index = elements[0].index;
+                const selectedMonth = chartData.months[index];
+                if (selectedMonth) {
+                    onMonthClick(selectedMonth.year, selectedMonth.monthIndex, selectedMonth.key);
+                }
+            }
+        },
         plugins: {
             legend: {
                 display: false,
@@ -118,10 +134,54 @@ export const BarChartComponent = ({ data, dateRange, type }) => {
         }
     };
 
-    return <Bar data={chartData} options={options} />;
+    return (
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            {hasDateFilter && onResetDateRange && (
+                <button
+                    onClick={onResetDateRange}
+                    title="Reset Date Range"
+                    aria-label="Reset Date Range"
+                    style={{
+                        position: 'absolute',
+                        top: '0px',
+                        left: '0px',
+                        zIndex: 10,
+                        backgroundColor: 'rgba(30, 30, 30, 0.85)',
+                        border: '1px solid #555',
+                        borderRadius: '6px',
+                        color: '#e0e0e0',
+                        cursor: 'pointer',
+                        padding: '6px 8px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                        backdropFilter: 'blur(4px)',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#383838';
+                        e.currentTarget.style.borderColor = '#03DAC6';
+                        e.currentTarget.style.color = '#03DAC6';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(30, 30, 30, 0.85)';
+                        e.currentTarget.style.borderColor = '#555';
+                        e.currentTarget.style.color = '#e0e0e0';
+                    }}
+                >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </button>
+            )}
+            <Bar data={chartData} options={options} />
+        </div>
+    );
 };
 
-export const PieChartComponent = ({ data, onCategoryClick, type }) => {
+export const PieChartComponent = ({ data, onCategoryClick, type, selectedCategory, onResetCategory }) => {
     const chartData = useMemo(() => {
         const totals = {};
         data.forEach(item => {
@@ -172,5 +232,49 @@ export const PieChartComponent = ({ data, onCategoryClick, type }) => {
         }
     };
 
-    return <Pie data={chartData} options={options} />;
+    return (
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            {selectedCategory && (
+                <button
+                    onClick={onResetCategory}
+                    title="Back to all categories"
+                    aria-label="Back to all categories"
+                    style={{
+                        position: 'absolute',
+                        top: '0px',
+                        left: '0px',
+                        zIndex: 10,
+                        backgroundColor: 'rgba(30, 30, 30, 0.85)',
+                        border: '1px solid #555',
+                        borderRadius: '6px',
+                        color: '#e0e0e0',
+                        cursor: 'pointer',
+                        padding: '6px 8px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                        backdropFilter: 'blur(4px)',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#383838';
+                        e.currentTarget.style.borderColor = '#03DAC6';
+                        e.currentTarget.style.color = '#03DAC6';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(30, 30, 30, 0.85)';
+                        e.currentTarget.style.borderColor = '#555';
+                        e.currentTarget.style.color = '#e0e0e0';
+                    }}
+                >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </button>
+            )}
+            <Pie data={chartData} options={options} />
+        </div>
+    );
 };

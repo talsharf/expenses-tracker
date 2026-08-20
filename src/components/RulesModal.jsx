@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { runRules } from '../api/client';
 
@@ -10,6 +10,32 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, onRulesChanged, categorie
     const [editForm, setEditForm] = useState({ category: '', description: '' });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
+
+    const handleSort = (key) => {
+        setSortConfig(current => {
+            if (current.key === key) {
+                return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+            }
+            return { key, direction: 'asc' };
+        });
+    };
+
+    const getSortIndicator = (key) => {
+        if (sortConfig.key !== key) return '↕';
+        return sortConfig.direction === 'asc' ? '↑' : '↓';
+    };
+
+    const sortedRules = useMemo(() => {
+        if (!sortConfig.key) return rules;
+        return [...rules].sort((a, b) => {
+            const valA = (a[sortConfig.key] || '').toString().toLowerCase();
+            const valB = (b[sortConfig.key] || '').toString().toLowerCase();
+            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [rules, sortConfig]);
 
     useEffect(() => {
         if (isOpen) {
@@ -259,13 +285,25 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, onRulesChanged, categorie
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr style={{ borderBottom: '2px solid #555' }}>
-                                    <th style={{ textAlign: 'left', padding: '10px', color: '#b0b0b0' }}>Category</th>
-                                    <th style={{ textAlign: 'left', padding: '10px', color: '#b0b0b0' }}>Description Keyword</th>
+                                    <th 
+                                        onClick={() => handleSort('category')} 
+                                        style={{ textAlign: 'left', padding: '10px', color: '#b0b0b0', cursor: 'pointer', userSelect: 'none' }}
+                                        title="Sort by Category"
+                                    >
+                                        Category {getSortIndicator('category')}
+                                    </th>
+                                    <th 
+                                        onClick={() => handleSort('description')} 
+                                        style={{ textAlign: 'left', padding: '10px', color: '#b0b0b0', cursor: 'pointer', userSelect: 'none' }}
+                                        title="Sort by Description Keyword"
+                                    >
+                                        Description Keyword {getSortIndicator('description')}
+                                    </th>
                                     <th style={{ width: '50px' }}></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {rules.map(rule => (
+                                {sortedRules.map(rule => (
                                     <tr key={rule.id} style={{ borderBottom: '1px solid #333' }}>
                                         <td style={{ padding: '10px' }}>
                                             {editingId === rule.id && editingField === 'category' ? (

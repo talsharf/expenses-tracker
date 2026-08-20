@@ -177,7 +177,7 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
     };
 
     const formatAmount = (item) => {
-        const amtStr = `$${item.amount.toFixed(2)}`;
+        const amtStr = `$${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         if (item.type === 'Income') {
             return <span style={{ color: '#03DAC6', fontWeight: 'bold' }}>+{amtStr}</span>;
         }
