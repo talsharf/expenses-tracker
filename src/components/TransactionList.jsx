@@ -1,10 +1,66 @@
 import React, { useState } from 'react';
 import { deleteTransaction, updateTransaction, createRule } from '../api/client';
 
-export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated, accounts = [], categories = [] }) => {
+export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated, accounts = [], categories = [], rules = [] }) => {
     const [editingField, setEditingField] = useState(null); // { id, field: 'category' | 'type' }
     const [editCategory, setEditCategory] = useState('');
     const [editType, setEditType] = useState('Expense');
+
+    const renderDescription = (description, category) => {
+        if (!description) return '';
+        if (!rules || rules.length === 0 || !category) {
+            return description;
+        }
+
+        // Find rules where the category matches and description contains the rule keyword
+        const matchingRules = rules.filter(r => 
+            r.category && 
+            r.description && 
+            r.description.trim() &&
+            r.category.trim().toLowerCase() === category.trim().toLowerCase() && 
+            description.toLowerCase().includes(r.description.trim().toLowerCase())
+        );
+
+        if (matchingRules.length === 0) {
+            return description;
+        }
+
+        // Extract unique keywords sorted by length descending
+        const keywords = [...new Set(matchingRules.map(r => r.description.trim()))]
+            .sort((a, b) => b.length - a.length);
+
+        const escaped = keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const regex = new RegExp(`(${escaped.join('|')})`, 'gi');
+        const parts = description.split(regex);
+
+        return (
+            <span>
+                {parts.map((part, index) => {
+                    const isMatch = keywords.some(k => k.toLowerCase() === part.toLowerCase());
+                    if (isMatch) {
+                        return (
+                            <mark
+                                key={index}
+                                style={{
+                                    backgroundColor: 'rgba(255, 152, 0, 0.28)',
+                                    color: '#ffb74d',
+                                    padding: '2px 5px',
+                                    borderRadius: '4px',
+                                    border: '1px solid rgba(255, 152, 0, 0.45)',
+                                    fontWeight: '500',
+                                    display: 'inline'
+                                }}
+                                title={`Rule matched keyword "${part}" for category "${category}"`}
+                            >
+                                {part}
+                            </mark>
+                        );
+                    }
+                    return <React.Fragment key={index}>{part}</React.Fragment>;
+                })}
+            </span>
+        );
+    };
 
     const getSortIndicator = (key) => {
         if (sortConfig.key !== key) return '↕';
@@ -162,7 +218,7 @@ export const TransactionList = ({ data, sortConfig, onSort, onTransactionUpdated
                                 <tr key={item.id} style={{ borderBottom: '1px solid #333' }}>
                                     <td style={{ padding: '12px', color: '#b0b0b0' }}>{item.date}</td>
                                     <td style={{ padding: '12px', color: '#888' }}>{getAccountName(item.bank_account_id)}</td>
-                                    <td style={{ padding: '12px', color: 'white' }}>{item.description}</td>
+                                    <td style={{ padding: '12px', color: 'white' }}>{renderDescription(item.description, item.category)}</td>
                                     <td style={{ padding: '12px' }}>
                                         {editingField && editingField.id === item.id && editingField.field === 'type' ? (
                                             <select

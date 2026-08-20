@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getCategories, createCategory, updateCategory, deleteCategory } from '../api/client';
 
-const CategoriesModal = ({ isOpen, onClose }) => {
+const CategoriesModal = ({ isOpen, onClose, onCategoriesChanged }) => {
     const [categories, setCategories] = useState([]);
     const [newCategory, setNewCategory] = useState('');
     const [newCategoryType, setNewCategoryType] = useState('Expense');
@@ -10,11 +10,17 @@ const CategoriesModal = ({ isOpen, onClose }) => {
     const [editType, setEditType] = useState('Expense');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [toastMessage, setToastMessage] = useState(null);
+    const [toastVisible, setToastVisible] = useState(false);
+    const toastTimerRef = useRef(null);
 
     useEffect(() => {
         if (isOpen) {
-            fetchCategories();
+            fetchCategories(true);
         }
+        return () => {
+            if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        };
     }, [isOpen]);
 
     useEffect(() => {
@@ -39,8 +45,8 @@ const CategoriesModal = ({ isOpen, onClose }) => {
         }
     };
 
-    const fetchCategories = async () => {
-        setLoading(true);
+    const fetchCategories = async (showLoading = false) => {
+        if (showLoading) setLoading(true);
         try {
             const res = await getCategories();
             setCategories(res.data);
@@ -49,16 +55,26 @@ const CategoriesModal = ({ isOpen, onClose }) => {
             setError('Failed to fetch categories');
             console.error(err);
         } finally {
-            setLoading(false);
+            if (showLoading) setLoading(false);
         }
     };
 
     const handleAddCategory = async () => {
-        if (!newCategory.trim()) return;
+        const categoryName = newCategory.trim();
+        if (!categoryName) return;
         try {
-            await createCategory({ name: newCategory.trim(), type: newCategoryType });
+            await createCategory({ name: categoryName, type: newCategoryType });
             setNewCategory('');
-            fetchCategories();
+            await fetchCategories(false);
+            if (onCategoriesChanged) onCategoriesChanged();
+
+            if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+            setToastMessage(`category ${categoryName} was added successfully.`);
+            setToastVisible(true);
+
+            toastTimerRef.current = setTimeout(() => {
+                setToastVisible(false);
+            }, 1000);
         } catch (err) {
             setError('Failed to add category');
             console.error(err);
@@ -69,7 +85,8 @@ const CategoriesModal = ({ isOpen, onClose }) => {
         if (!window.confirm("Delete this category? Transactions using it will remain unchanged but it won't appear in lists.")) return;
         try {
             await deleteCategory(id);
-            fetchCategories();
+            await fetchCategories(false);
+            if (onCategoriesChanged) onCategoriesChanged();
         } catch (err) {
             setError('Failed to delete category');
             console.error(err);
@@ -93,7 +110,8 @@ const CategoriesModal = ({ isOpen, onClose }) => {
             await updateCategory(id, { name: editName.trim(), type: editType });
             setEditingId(null);
             setEditName('');
-            fetchCategories();
+            await fetchCategories(false);
+            if (onCategoriesChanged) onCategoriesChanged();
         } catch (err) {
             setError('Failed to update category');
             console.error(err);
@@ -130,6 +148,32 @@ const CategoriesModal = ({ isOpen, onClose }) => {
             <div className="modal-content card" style={{
                 width: '500px', position: 'relative'
             }}>
+                {toastMessage && (
+                    <div style={{
+                        position: 'absolute',
+                        top: '12px',
+                        left: '50%',
+                        transform: toastVisible ? 'translate(-50%, 0)' : 'translate(-50%, -8px)',
+                        backgroundColor: '#2e7d32',
+                        color: '#ffffff',
+                        padding: '6px 14px',
+                        borderRadius: '20px',
+                        fontSize: '0.85rem',
+                        fontWeight: '500',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                        zIndex: 1200,
+                        pointerEvents: 'none',
+                        opacity: toastVisible ? 1 : 0,
+                        transition: 'opacity 0.4s ease, transform 0.4s ease',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        border: '1px solid #4caf50',
+                        whiteSpace: 'nowrap'
+                    }}>
+                        <span>✓</span> {toastMessage}
+                    </div>
+                )}
                 <button onClick={onClose} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'white' }}>&times;</button>
                 <h2>Manage Categories</h2>
 

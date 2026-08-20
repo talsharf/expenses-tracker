@@ -6,7 +6,7 @@ import RulesModal from './RulesModal';
 import AccountsModal from './AccountsModal';
 import CategoriesModal from './CategoriesModal';
 import DocumentsModal from './DocumentsModal';
-import { getTransactions, clearTransactions, getBankAccounts, getCategories } from '../api/client';
+import { getTransactions, clearTransactions, getBankAccounts, getCategories, getRules } from '../api/client';
 
 export const Dashboard = () => {
     // Data State
@@ -17,6 +17,7 @@ export const Dashboard = () => {
     const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
     const [accounts, setAccounts] = useState([]);
     const [categories, setCategories] = useState([]);
+    const [rules, setRules] = useState([]);
 
     // Initial sort: Date Descending
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
@@ -46,8 +47,11 @@ export const Dashboard = () => {
 
             const categoriesRes = await getCategories();
             setCategories(categoriesRes.data);
+
+            const rulesRes = await getRules();
+            setRules(rulesRes.data);
         } catch (error) {
-            console.error("Failed to fetch transactions:", error);
+            console.error("Failed to fetch dashboard data:", error);
         }
     }, []);
 
@@ -321,10 +325,15 @@ export const Dashboard = () => {
                 isOpen={isRulesModalOpen}
                 onClose={() => setIsRulesModalOpen(false)}
                 onRulesApplied={fetchData}
+                onRulesChanged={fetchData}
                 categories={categories}
             />
             <AccountsModal isOpen={isAccountsModalOpen} onClose={() => setIsAccountsModalOpen(false)} onAccountsChanged={fetchData} />
-            <CategoriesModal isOpen={isCategoriesModalOpen} onClose={() => setIsCategoriesModalOpen(false)} />
+            <CategoriesModal 
+                isOpen={isCategoriesModalOpen} 
+                onClose={() => setIsCategoriesModalOpen(false)} 
+                onCategoriesChanged={fetchData} 
+            />
             <DocumentsModal 
                 isOpen={isDocumentsModalOpen} 
                 onClose={() => setIsDocumentsModalOpen(false)} 
@@ -539,6 +548,7 @@ export const Dashboard = () => {
                 onTransactionUpdated={fetchData}
                 accounts={accounts}
                 categories={categories}
+                rules={rules}
             />
         </div >
     );

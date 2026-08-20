@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { runRules } from '../api/client';
 
-const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
+const RulesModal = ({ isOpen, onClose, onRulesApplied, onRulesChanged, categories = [] }) => {
     const [rules, setRules] = useState([]);
     const [newRule, setNewRule] = useState({ category: '', description: '' });
     const [editingId, setEditingId] = useState(null);
@@ -13,7 +13,7 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
 
     useEffect(() => {
         if (isOpen) {
-            fetchRules();
+            fetchRules(true);
         }
     }, [isOpen]);
 
@@ -39,8 +39,8 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
         }
     };
 
-    const fetchRules = async () => {
-        setLoading(true);
+    const fetchRules = async (showLoading = false) => {
+        if (showLoading) setLoading(true);
         try {
             const res = await axios.get('http://localhost:3000/api/rules');
             setRules(res.data);
@@ -49,7 +49,7 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
             setError('Failed to fetch rules');
             console.error(err);
         } finally {
-            setLoading(false);
+            if (showLoading) setLoading(false);
         }
     };
 
@@ -58,7 +58,8 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
         try {
             await axios.post('http://localhost:3000/api/rules', newRule);
             setNewRule({ category: '', description: '' });
-            fetchRules();
+            await fetchRules(false);
+            if (onRulesChanged) onRulesChanged();
         } catch (err) {
             setError('Failed to add rule');
             console.error(err);
@@ -67,11 +68,14 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
 
     const handleDeleteRule = async (id) => {
         try {
+            setRules(prev => prev.filter(r => r.id !== id));
             await axios.delete(`http://localhost:3000/api/rules/${id}`);
-            fetchRules();
+            await fetchRules(false);
+            if (onRulesChanged) onRulesChanged();
         } catch (err) {
             setError('Failed to delete rule');
             console.error(err);
+            fetchRules(false);
         }
     };
 
@@ -89,13 +93,16 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
 
     const handleUpdateRule = async (id, data) => {
         try {
-            await axios.put(`http://localhost:3000/api/rules/${id}`, data);
+            setRules(prev => prev.map(r => r.id === id ? { ...r, ...data } : r));
             setEditingId(null);
             setEditingField(null);
-            fetchRules();
+            await axios.put(`http://localhost:3000/api/rules/${id}`, data);
+            await fetchRules(false);
+            if (onRulesChanged) onRulesChanged();
         } catch (err) {
             setError('Failed to update rule');
             console.error(err);
+            fetchRules(false);
         }
     };
 
@@ -293,10 +300,18 @@ const RulesModal = ({ isOpen, onClose, onRulesApplied, categories = [] }) => {
                                                     onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            handleUpdateRule(rule.id, editForm);
+                                                        } else if (e.key === 'Escape') {
+                                                            e.preventDefault();
+                                                            cancelEdit();
+                                                        }
+                                                    }}
+                                                    onBlur={() => {
+                                                        if (editingId === rule.id) {
                                                             handleUpdateRule(rule.id, editForm);
                                                         }
                                                     }}
-                                                    onBlur={() => handleUpdateRule(rule.id, editForm)}
                                                     autoFocus
                                                     onFocus={(e) => e.target.select()}
                                                     style={{ width: '100%', padding: '6px' }}

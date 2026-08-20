@@ -34,7 +34,10 @@ export const getDocuments = () => client.get('/documents');
 export const scanDocument = (id) => client.post(`/documents/${id}/scan`);
 export const deleteDocument = (id) => client.delete(`/documents/${id}`);
 
+export const getRules = () => client.get('/rules');
 export const runRules = () => client.post('/rules/run');
+export const updateRule = (id, data) => client.put(`/rules/${id}`, data);
+export const deleteRule = (id) => client.delete(`/rules/${id}`);
 
 // Categories
 export const getCategories = () => client.get('/categories');
